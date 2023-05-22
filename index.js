@@ -30,7 +30,10 @@ var Room = function(codeid,type,maxp){
     currplayers:0,
     spectate:"",
     players:{},
-    spectaters:{}
+    spectaters:{},
+    roominfo:{
+        empty:'info'
+    }
     }
     return self;
 }
@@ -142,10 +145,10 @@ var updatePlayerClient = function(data, calltype, extrainfo) {
     if(calltype == 'undefined' || calltype == undefined || calltype == null || calltype == ''){
         calltype = 'undefined';
     }
-    console.log('update client: ', data, calltype);
+    console.log('roominfo wher: ', rlist[data].roominfo.where);
     try{
         for(var i in rlist[data].players){
-            SOCKET_LIST[rlist[data].players[i].id].emit('updateplayersclient',{playerslist:rlist[data].players, roomtype:rlist[data].roomtype, activeplayerclient:rlist[data].players[i].name, calltype:calltype, list:extrainfo, room:data});
+            SOCKET_LIST[rlist[data].players[i].id].emit('updateplayersclient',{playerslist:rlist[data].players, roomtype:rlist[data].roomtype, activeplayerclient:rlist[data].players[i].name, calltype:calltype, list:extrainfo, room:data, roominfo:rlist[data].roominfo});
         }  
     }catch(e){
         console.log(e);
@@ -281,7 +284,7 @@ io.on("connection", (socket) => {
                         socket.id = tempsocket;
                         tempplayer.loggedin = true;
                         socket.emit('signInResponse',{success:true,room:data.room,roomtype:data.roomtype});   
-                        console.log('gamestart' , gamestart);
+                        
                         updatePlayerClient(data.room, 'reconnect', {gamestart:gamestart});
                     }
                     else{
@@ -327,6 +330,7 @@ io.on("connection", (socket) => {
                     rlist[data.room].players[i].gameinfo.color = data.color;
                 }
             }
+            rlist[data.room].roominfo.where = 'lobby';
             updatePlayerClient(data.room, 'teampick');
         }catch(e){
             console.log(e);
@@ -360,7 +364,7 @@ io.on("connection", (socket) => {
                     rlist[data.room].players[shuffledlist[i]].gameinfo.color = 'blue';
                 }
             }
-
+            rlist[data.room].roominfo.where = 'lobby';
             updatePlayerClient(data.room, 'teampick');
         }catch(e){
             console.log(e);
@@ -422,6 +426,15 @@ io.on("connection", (socket) => {
                     rlist[data.room].players[i].gameinfo.gamestart = true;
                     // rlist[data.room].players[i].gameinfo.saveddata = {selectedWords:randomWords, startingTeam:startingTeam, redWords:redWords, blueWords:blueWords, grayWord:grayWord, spymasterredlist:spymasterredlist, spymasterbluelist:spymasterbluelist};
                 }
+                console.log(data.where);
+                rlist[data.room].roominfo.where = data.where;
+                rlist[data.room].roominfo.selectedWords = randomWords;
+                rlist[data.room].roominfo.startingTeam = startingTeam;
+                rlist[data.room].roominfo.redWords = redWords;
+                rlist[data.room].roominfo.blueWords = blueWords;
+                rlist[data.room].roominfo.grayWord = grayWord
+                rlist[data.room].roominfo.spymasterredlist = spymasterredlist;
+                rlist[data.room].roominfo.spymasterbluelist = spymasterbluelist;
         
                 updatePlayerClient(data.room, 'startgame', {selectedWords:randomWords, startingTeam:startingTeam, redWords:redWords, blueWords:blueWords, grayWord:grayWord, spymasterredlist:spymasterredlist, spymasterbluelist:spymasterbluelist});
             }
@@ -442,6 +455,11 @@ io.on("connection", (socket) => {
             data.guesses=parseInt(data.guesses)+1;
             console.log('guesses', data.guesses);
 
+            rlist[data.room].roominfo.where = data.where;
+            rlist[data.room].roominfo.guesses = data.guesses;
+            rlist[data.room].roominfo.code = data.code;
+            rlist[data.room].roominfo.currTeam = data.currTeam;
+
             updatePlayerClient(data.room, 'cluesent', {guesses:data.guesses, code:data.code, currTeam:data.currTeam});
         }catch(e){
             console.log(e);
@@ -450,6 +468,18 @@ io.on("connection", (socket) => {
 
     socket.on('send_clicked_card',function(data){   
         try{
+            rlist[data.room].roominfo.where = data.where;
+            rlist[data.room].roominfo.guesses = data.guesses;
+            rlist[data.room].roominfo.code = data.code;
+            rlist[data.room].roominfo.currTeam = data.currTeam
+            rlist[data.room].roominfo.cardClicked = data.cardClicked;
+            rlist[data.room].roominfo.clickedCards = data.clickedCards;
+            rlist[data.room].roominfo.scoreBlue = data.scoreBlue
+            rlist[data.room].roominfo.scoreRed = data.scoreRed;
+            rlist[data.room].roominfo.redWords = data.redWords;
+            rlist[data.room].roominfo.blueWords = data.blueWords;
+            rlist[data.room].roominfo.grayWord = data.grayWord;
+
             updatePlayerClient(data.room, 'clicksent', {guesses:data.guesses, code:data.code, currTeam:data.currTeam, cardClicked:data.cardClicked, clickedCards:data.clickedCards, scoreBlue:data.scoreBlue, scoreRed:data.scoreRed, redWords:data.redWords, blueWords:data.blueWords, grayWord:data.grayWord}); 
         }catch(e){
             console.log(e);
@@ -458,6 +488,18 @@ io.on("connection", (socket) => {
 
     socket.on('skipped_turn',function(data){
         try{
+            rlist[data.room].roominfo.where = data.where;
+            rlist[data.room].roominfo.guesses = data.guesses;
+            rlist[data.room].roominfo.code = data.code;
+            rlist[data.room].roominfo.currTeam = data.currTeam
+            rlist[data.room].roominfo.cardClicked = data.cardClicked;
+            rlist[data.room].roominfo.clickedCards = data.clickedCards;
+            rlist[data.room].roominfo.scoreBlue = data.scoreBlue
+            rlist[data.room].roominfo.scoreRed = data.scoreRed;
+            rlist[data.room].roominfo.redWords = data.redWords;
+            rlist[data.room].roominfo.blueWords = data.blueWords;
+            rlist[data.room].roominfo.grayWord = data.grayWord;
+
             updatePlayerClient(data.room, 'skippedturn', {guesses:data.guesses, code:data.code, currTeam:data.currTeam, cardClicked:data.cardClicked, clickedCards:data.clickedCards, scoreBlue:data.scoreBlue, scoreRed:data.scoreRed, redWords:data.redWords, blueWords:data.blueWords, grayWord:data.grayWord}); 
         }catch(e){
             console.log(e);
@@ -466,6 +508,21 @@ io.on("connection", (socket) => {
 
     socket.on('game_over_codename',function(data){
         try{
+            rlist[data.room].roominfo.where = data.where;
+            // rlist[data.room].roominfo.guesses = data.guesses;
+            // rlist[data.room].roominfo.code = data.code;
+            // rlist[data.room].roominfo.currTeam = data.currTeam
+            // rlist[data.room].roominfo.cardClicked = data.cardClicked;
+            // rlist[data.room].roominfo.clickedCards = data.clickedCards;
+            // rlist[data.room].roominfo.scoreBlue = data.scoreBlue
+            // rlist[data.room].roominfo.scoreRed = data.scoreRed;
+            // rlist[data.room].roominfo.redWords = data.redWords;
+            // rlist[data.room].roominfo.blueWords = data.blueWords;
+            // rlist[data.room].roominfo.grayWord = data.grayWord;
+            rlist[data.room].roominfo.winners = data.winners;
+            // rlist[data.room].roominfo.selectedWords = data.selectedWords;
+            rlist[data.room].roominfo.reason = data.reason;
+
             updatePlayerClient(data.room, 'gameovercodename', {guesses:data.guesses, code:data.code, currTeam:data.currTeam, cardClicked:data.cardClicked, clickedCards:data.clickedCards, scoreBlue:data.scoreBlue, scoreRed:data.scoreRed, redWords:data.redWords, blueWords:data.blueWords, grayWord:data.grayWord, winners:data.winners, selectedWords:data.selectedWords, reason:data.reason}); 
         }catch(e){
             console.log(e);
@@ -474,6 +531,17 @@ io.on("connection", (socket) => {
 
     socket.on('update_board',function(data){   
         try{
+            // rlist[data.room].roominfo.where = data.where;
+            // rlist[data.room].roominfo.guesses = data.guesses;
+            // rlist[data.room].roominfo.code = data.code;
+            // rlist[data.room].roominfo.currTeam = data.currTeam
+            // rlist[data.room].roominfo.cardClicked = data.cardClicked;
+            // rlist[data.room].roominfo.clickedCards = data.clickedCards;
+            // rlist[data.room].roominfo.scoreBlue = data.scoreBlue
+            // rlist[data.room].roominfo.scoreRed = data.scoreRed;
+            // rlist[data.room].roominfo.redWords = data.redWords;
+            // rlist[data.room].roominfo.blueWords = data.blueWords;
+            // rlist[data.room].roominfo.grayWord = data.grayWord;
             updatePlayerClient(data.room, 'updateboard', {guesses:data.guesses, code:data.code, currTeam:data.currTeam, cardClicked:data.cardClicked, clickedCards:data.newclicked, scoreBlue:data.scoreBlue, scoreRed:data.scoreRed, redWords:data.redWords, blueWords:data.blueWords, grayWord:data.grayWord}); 
         }catch(e){
             console.log(e);
@@ -484,6 +552,17 @@ io.on("connection", (socket) => {
         try{
             socket.emit('backtocodenamehome');
 		    playerDisconnect(socket.id,true);
+            rlist[data.room].roominfo.where = data.where;
+            rlist[data.room].roominfo.guesses = data.guesses;
+            rlist[data.room].roominfo.code = data.code;
+            rlist[data.room].roominfo.currTeam = data.currTeam
+            rlist[data.room].roominfo.cardClicked = data.cardClicked;
+            rlist[data.room].roominfo.clickedCards = data.clickedCards;
+            rlist[data.room].roominfo.scoreBlue = data.scoreBlue
+            rlist[data.room].roominfo.scoreRed = data.scoreRed;
+            rlist[data.room].roominfo.redWords = data.redWords;
+            rlist[data.room].roominfo.blueWords = data.blueWords;
+            rlist[data.room].roominfo.grayWord = data.grayWord;
             updatePlayerClient(data.room, 'updateafterdisconnect', {guesses:data.guesses, code:data.code, currTeam:data.currTeam, cardClicked:data.cardClicked, clickedCards:data.newclicked, scoreBlue:data.scoreBlue, scoreRed:data.scoreRed, redWords:data.redWords, blueWords:data.blueWords, grayWord:data.grayWord});
         }catch(e){
             console.log(e);
@@ -541,7 +620,14 @@ io.on("connection", (socket) => {
                 let [firstblue, ...restblue] = data.blueTeam;
                 let spymasterbluelist = [...restblue,firstblue];
 
-                console.log(randomWords, startingTeam, redWords, blueWords, grayWord, spymasterredlist, spymasterbluelist);
+                rlist[data.room].roominfo.where = data.where;
+                rlist[data.room].roominfo.selectedWords = randomWords;
+                rlist[data.room].roominfo.startingTeam = startingTeam;
+                rlist[data.room].roominfo.redWords = redWords;
+                rlist[data.room].roominfo.blueWords = blueWords;
+                rlist[data.room].roominfo.grayWord = grayWord;
+                rlist[data.room].roominfo.spymasterredlist = spymasterredlist;
+                rlist[data.room].roominfo.spymasterbluelist = spymasterbluelist;
         
                 updatePlayerClient(data.room, 'startgame', {selectedWords:randomWords, startingTeam:startingTeam, redWords:redWords, blueWords:blueWords, grayWord:grayWord, spymasterredlist:spymasterredlist, spymasterbluelist:spymasterbluelist});
         }catch(e){
