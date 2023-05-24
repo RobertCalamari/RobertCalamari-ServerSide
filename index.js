@@ -237,8 +237,9 @@ io.on("connection", (socket) => {
 
   socket.on('room_check',function(data){
     if(data.room != ''){
-        console.log(data.room);
-        updatePlayerClient(data.room, 'reconnect', {});
+        let dataRoom = cleanUpRoomName(data.room);
+        console.log(dataRoom);
+        updatePlayerClient(dataRoom, 'reconnect', {});
     }
   });
 
