@@ -145,8 +145,8 @@ var updatePlayerClient = function(data, calltype, extrainfo) {
     if(calltype == 'undefined' || calltype == undefined || calltype == null || calltype == ''){
         calltype = 'undefined';
     }
-    console.log('roominfo wher: ', rlist[data].roominfo.where);
     try{
+        console.log('roominfo wher: ', rlist[data].roominfo.where);
         for(var i in rlist[data].players){
             SOCKET_LIST[rlist[data].players[i].id].emit('updateplayersclient',{playerslist:rlist[data].players, roomtype:rlist[data].roomtype, activeplayerclient:rlist[data].players[i].name, calltype:calltype, list:extrainfo, room:data, roominfo:rlist[data].roominfo});
         }  
@@ -241,11 +241,6 @@ io.on("connection", (socket) => {
         updatePlayerClient(data.room, 'reconnect', {});
     }
   });
-
-    // socket.on("join_room", (data) => {
-    //     console.log(data.username + ' - Room Joined: ' + data.room);
-    //     
-    // });
 
     socket.id = Math.random();
     SOCKET_LIST[socket.id] = socket;
