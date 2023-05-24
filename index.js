@@ -237,9 +237,13 @@ io.on("connection", (socket) => {
 
   socket.on('room_check',function(data){
     if(data.room != '' || data.room != undefined || data.room != 'undefined' || data.room != null){
-        let dataRoom = cleanUpRoomName(data.room);
-        console.log(dataRoom);
-        updatePlayerClient(dataRoom, 'reconnect', {});
+        if(data.room === undefined){
+
+        }else{
+            let dataRoom = cleanUpRoomName(data.room);
+            console.log(dataRoom);
+            updatePlayerClient(dataRoom, 'reconnect', {});
+        }
     }
   });
 
