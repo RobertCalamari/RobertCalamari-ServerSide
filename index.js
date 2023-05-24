@@ -237,7 +237,7 @@ io.on("connection", (socket) => {
   socket.emit("checkforroom", {socket:socket.id});
 
   socket.on('makeplayer',function(data){
-    updatePlayerClient(data.room, 'reconnect', {gamestart:gamestart});
+    updatePlayerClient(data.room, 'reconnect', {});
   });
 
     // socket.on("join_room", (data) => {
