@@ -234,6 +234,11 @@ var playerDisconnect = function(pid,forgood){
 
 io.on("connection", (socket) => {
   console.log(`User Connected: ${socket.id}`);
+  socket.emit("checkforroom", {socket:socket.id});
+
+  socket.on('makeplayer',function(data){
+    updatePlayerClient(data.room, 'reconnect', {gamestart:gamestart});
+  });
 
     // socket.on("join_room", (data) => {
     //     console.log(data.username + ' - Room Joined: ' + data.room);
