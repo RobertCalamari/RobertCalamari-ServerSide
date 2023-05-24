@@ -236,8 +236,10 @@ io.on("connection", (socket) => {
   console.log(`User Connected: ${socket.id}`);
   socket.emit("checkforroom", {socket:socket.id});
 
-  socket.on('makeplayer',function(data){
-    updatePlayerClient(data.room, 'reconnect', {});
+  socket.on('room_check',function(data){
+    if(data.room != ''){
+        updatePlayerClient(data.room, 'reconnect', {});
+    }
   });
 
     // socket.on("join_room", (data) => {
