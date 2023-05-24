@@ -236,7 +236,7 @@ io.on("connection", (socket) => {
   socket.emit("checkforroom", {socket:socket.id});
 
   socket.on('room_check',function(data){
-    if(data.room != ''){
+    if(data.room != '' || data.room != undefined || data.room != 'undefined'){
         let dataRoom = cleanUpRoomName(data.room);
         console.log(dataRoom);
         updatePlayerClient(dataRoom, 'reconnect', {});
