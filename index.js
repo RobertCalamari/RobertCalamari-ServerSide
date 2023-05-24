@@ -146,7 +146,6 @@ var updatePlayerClient = function(data, calltype, extrainfo) {
         calltype = 'undefined';
     }
     try{
-        console.log('roominfo wher: ', rlist[data].roominfo.where);
         for(var i in rlist[data].players){
             SOCKET_LIST[rlist[data].players[i].id].emit('updateplayersclient',{playerslist:rlist[data].players, roomtype:rlist[data].roomtype, activeplayerclient:rlist[data].players[i].name, calltype:calltype, list:extrainfo, room:data, roominfo:rlist[data].roominfo});
         }  
