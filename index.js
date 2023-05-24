@@ -9,9 +9,6 @@ app.use(cors());
 const server = http.createServer(app);
 
 const io = new Server(server, {
-transports: ['websocket'],
-  pingInterval: 1000 * 60 * 5,
-  pingTimeout: 1000 * 60 * 3,
   cors: {
     origin: "*",
     methods: ["GET", "POST"],
