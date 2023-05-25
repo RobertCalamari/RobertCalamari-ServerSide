@@ -232,27 +232,26 @@ var playerDisconnect = function(pid,forgood){
 //------------------------------------------------------------------------------------------------------------------------------------------
 
 io.on("connection", (socket) => {
-  console.log(`User Connected: ${socket.id}`);
-  socket.emit("checkforroom", {socket:socket.id});
 
   socket.on('room_check',function(data){
-    console.log(data.room);
-    console.log(data.playername);
     if(data.room != '' || data.room != undefined || data.room != 'undefined' || data.room != null){
         if(data.room === undefined){
 
         }else{
-            // let dataRoom = cleanUpRoomName(data.room);
-            // console.log(dataRoom);
-            // console.log(data.playername);
-            // updatePlayerClient(dataRoom, 'reconnect', {});
-            // socket.emit('updateplayersclient',{playerslist:rlist[data.room].players, roomtype:rlist[data.room].roomtype, activeplayerclient:rlist[data.room].players[i].name, calltype:'reconnect', room:data.room, roominfo:rlist[data.room].roominfo});
+            for(var i in rlist[data.room].players){
+                if(rlist[data.room].players[i].name==data.user){
+                    console.log('current socket: ', rlist[data.room].players[i].name);
+                    socket.emit('updateplayersclient',{playerslist:rlist[data.room].players, roomtype:rlist[data.room].roomtype, activeplayerclient:rlist[data.room].players[i].name, calltype:'reconnect', room:data.room, roominfo:rlist[data.room].roominfo});
+                }
+            }
         }
     }
   });
 
     socket.id = Math.random();
     SOCKET_LIST[socket.id] = socket;
+    console.log(`User Connected: ${socket.id}`);
+    socket.emit("checkforroom", {socket:socket.id});
    
 	socket.on('makeplayer',function(data){
 		var nameIsUsed=false;
