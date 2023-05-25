@@ -242,7 +242,12 @@ io.on("connection", (socket) => {
         }else{
             let dataRoom = cleanUpRoomName(data.room);
             console.log(dataRoom);
+            console.log(data.playername);
             updatePlayerClient(dataRoom, 'reconnect', {});
+            for(var i in rlist[data].players){
+                
+            }
+            socket.emit('updateplayersclient',{playerslist:rlist[data.room].players, roomtype:rlist[data.room].roomtype, activeplayerclient:rlist[data.room].players[i].name, calltype:'reconnect', room:data.room, roominfo:rlist[data.room].roominfo});
         }
     }
   });
@@ -290,13 +295,13 @@ io.on("connection", (socket) => {
                         SOCKET_LIST[tempsocket] = socket;
                         socket.id = tempsocket;
                         tempplayer.loggedin = true;
-                        socket.emit('signInResponse',{success:true,room:data.room,roomtype:data.roomtype});   
+                        socket.emit('signInResponse',{success:true,room:data.room,roomtype:data.roomtype, playername:data.playername});   
                         
                         updatePlayerClient(data.room, 'reconnect', {gamestart:gamestart});
                     }
                     else{
                         createPlayerObj(socket.id,data.playername,data.room,data);
-                        socket.emit('signInResponse',{success:true,room:data.room,roomtype:data.roomtype}); 
+                        socket.emit('signInResponse',{success:true,room:data.room,roomtype:data.roomtype, playername:data.playername}); 
                     }
                 }
             } 
