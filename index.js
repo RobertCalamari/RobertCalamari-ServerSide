@@ -239,10 +239,10 @@ io.on("connection", (socket) => {
 
         }else{
             console.log('room:', data.room);
-            console.log('user:', data.user);
+            console.log('playername:', data.playername);
             try{
                 for(var i in rlist[data.room].players){
-                    if(rlist[data.room].players[i].name==data.user){
+                    if(rlist[data.room].players[i].name==data.playername){
                         console.log('current socket: ', rlist[data.room].players[i].name);
                         socket.emit('updateplayersclient',{playerslist:rlist[data.room].players, roomtype:rlist[data.room].roomtype, activeplayerclient:rlist[data.room].players[i].name, calltype:'reconnect', room:data.room, roominfo:rlist[data.room].roominfo});
                     }
