@@ -238,11 +238,15 @@ io.on("connection", (socket) => {
         if(data.room === undefined){
 
         }else{
-            for(var i in rlist[data.room].players){
-                if(rlist[data.room].players[i].name==data.user){
-                    console.log('current socket: ', rlist[data.room].players[i].name);
-                    socket.emit('updateplayersclient',{playerslist:rlist[data.room].players, roomtype:rlist[data.room].roomtype, activeplayerclient:rlist[data.room].players[i].name, calltype:'reconnect', room:data.room, roominfo:rlist[data.room].roominfo});
+            try{
+                for(var i in rlist[data.room].players){
+                    if(rlist[data.room].players[i].name==data.user){
+                        console.log('current socket: ', rlist[data.room].players[i].name);
+                        socket.emit('updateplayersclient',{playerslist:rlist[data.room].players, roomtype:rlist[data.room].roomtype, activeplayerclient:rlist[data.room].players[i].name, calltype:'reconnect', room:data.room, roominfo:rlist[data.room].roominfo});
+                    }
                 }
+            }catch(e){
+                console.log(e);
             }
         }
     }
