@@ -238,6 +238,8 @@ io.on("connection", (socket) => {
         if(data.room === undefined){
 
         }else{
+            console.log('room:', data.room);
+            console.log('user:', data.user);
             try{
                 for(var i in rlist[data.room].players){
                     if(rlist[data.room].players[i].name==data.user){
