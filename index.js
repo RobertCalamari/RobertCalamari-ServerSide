@@ -235,8 +235,9 @@ io.on("connection", (socket) => {
 
   socket.on('room_check',function(data){
     if(data.room != '' || data.room != undefined || data.room != 'undefined' || data.room != null){
-        if(data.room === undefined){
-
+        console.log('room check: ', data.room);
+        if(data.room === undefined || data.room === '' || typeof rlist[data.room] === 'undefined'){
+            
         }else{
             try{
                 for(var i in rlist[data.room].players){
