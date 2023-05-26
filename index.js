@@ -248,6 +248,7 @@ io.on("connection", (socket) => {
                         rlist[data.room].players[i].id = socket.id;
                         socket.id = Math.random();
                         SOCKET_LIST[socket.id] = socket;
+                        Player.onConnect(socket.id,data.playername,data.room);
                         rlist[data.room].players[i].loggedin = true;
                         socket.emit('updateplayersclient',{playerslist:rlist[data.room].players, roomtype:rlist[data.room].roomtype, activeplayerclient:rlist[data.room].players[i].name, calltype:'reconnect', room:data.room, roominfo:rlist[data.room].roominfo});
                     }
