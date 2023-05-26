@@ -245,7 +245,11 @@ io.on("connection", (socket) => {
                     if(rlist[data.room].players[i].name==data.playername){
                         console.log('current socket: ', socket.id);
                         console.log('roomlist id: ', rlist[data.room].players[i].id);
-                        SOCKET_LIST[rlist[data].players[i].id].emit('updateplayersclient',{playerslist:rlist[data.room].players, roomtype:rlist[data.room].roomtype, activeplayerclient:rlist[data.room].players[i].name, calltype:'reconnect', room:data.room, roominfo:rlist[data.room].roominfo});
+                        delete SOCKET_LIST[rlist[data.room].players[i].id];
+                        rlist[data.room].players[i].id = socket.id;
+                        socket.id = Math.random();
+                        SOCKET_LIST[socket.id] = socket;
+                        rlist[data.room].players[i].loggedin = true;
                         socket.emit('updateplayersclient',{playerslist:rlist[data.room].players, roomtype:rlist[data.room].roomtype, activeplayerclient:rlist[data.room].players[i].name, calltype:'reconnect', room:data.room, roominfo:rlist[data.room].roominfo});
                     }
                 }
