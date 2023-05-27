@@ -537,9 +537,12 @@ io.on("connection", (socket) => {
 
     socket.on('exit_codename_game',function(data){
         try{
-            socket.emit('backtocodenamehome');
-            playerDisconnect(socket.id,true);
-            updatePlayerClient(data.room, 'codenameexit', {datatype:'codenameexit'});
+            if(typeof rlist[data.room] === 'undefined'){
+            }else{
+                socket.emit('backtocodenamehome');
+                playerDisconnect(socket.id,true);
+                updatePlayerClient(data.room, 'codenameexit', {datatype:'codenameexit'});
+            }
         }catch(e){
             console.log(e);
         }
@@ -547,7 +550,9 @@ io.on("connection", (socket) => {
 
     socket.on('new_codename_game',function(data){
         try{
-            const copyList = [...data.allWords];
+            if(typeof rlist[data.room] === 'undefined'){
+            }else{
+                const copyList = [...data.allWords];
                 const randomWords = [];
                 for (let i = 0; i < 25; i++) {
                     const randomIndex = Math.floor(Math.random() * copyList.length);
@@ -608,37 +613,32 @@ io.on("connection", (socket) => {
                 rlist[data.room].roominfo.clickedCards = [[],[]];
         
                 updatePlayerClient(data.room, 'newgame', {datatype:'newgame'});
+            }
         }catch(e){
             console.log(e);
         }
 	});
 
-        // socket.on('room_check',function(data){
-        //     if(data.room != '' || data.room != undefined || data.room != 'undefined' || data.room != null){
-        //         console.log('room check: ', data.room);
-        //         if(data.room === undefined || data.room === '' || typeof rlist[data.room] === 'undefined'){
-                    
-        //         }else{
-        //             try{
-        //                 for(var i in rlist[data.room].players){
-        //                     if(rlist[data.room].players[i].name==data.playername){
-        //                         console.log('current socket: ', socket.id);
-        //                         console.log('roomlist id: ', rlist[data.room].players[i].id);
-        //                         delete SOCKET_LIST[rlist[data.room].players[i].id];
-        //                         rlist[data.room].players[i].id = socket.id;
-        //                         socket.id = Math.random();
-        //                         SOCKET_LIST[socket.id] = socket;
-        //                         Player.onConnect(socket.id,data.playername,data.room);
-        //                         rlist[data.room].players[i].loggedin = true;
-        //                         socket.emit('updateplayersclient',{playerslist:rlist[data.room].players, roomtype:rlist[data.room].roomtype, activeplayerclient:rlist[data.room].players[i].name, calltype:'reconnect', room:data.room, roominfo:rlist[data.room].roominfo});
-        //                     }
-        //                 }
-        //             }catch(e){
-        //                 console.log(e);
-        //             }
-        //         }
-        //     }
-        //   });
+    socket.on('room_check',function(data){
+        if(typeof rlist[data.room] === 'undefined' || data.room == '' || data.playername == ''){
+        }else{
+            try{
+                for(var i in rlist[data.room].players){
+                    if(rlist[data.room].players[i].name==data.playername){
+                        delete SOCKET_LIST[rlist[data.room].players[i].id];
+                        rlist[data.room].players[i].id = socket.id;
+                        socket.id = Math.random();
+                        SOCKET_LIST[socket.id] = socket;
+                        Player.onConnect(socket.id,data.playername,data.room);
+                        rlist[data.room].players[i].loggedin = true;
+                        updatePlayerClient(data.room, 'reconnect-mobile', {datatype:'reconnect-mobile'});
+                    }
+                }
+            }catch(e){
+                console.log(e);
+            }
+        }
+        });
 
     // socket.on('join_codename_team',function(data){   
     //     try{
