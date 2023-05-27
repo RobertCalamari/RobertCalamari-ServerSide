@@ -627,6 +627,7 @@ io.on("connection", (socket) => {
                     if(rlist[data.room].players[i].name==data.playername){
                         delete SOCKET_LIST[rlist[data.room].players[i].id];
                         plist[data.socketid] = plist[rlist[data.room].players[i].id];
+                        delete plist[rlist[data.room].players[i].id];
                         rlist[data.room].players[i].id = data.socketid;
                         rlist[data.room].players[i].loggedin = true;
                         updatePlayerClient(data.room, 'reconnect-mobile', {datatype:'reconnect-mobile'});
