@@ -509,7 +509,6 @@ io.on("connection", (socket) => {
                 rlist[data.room].roominfo.scoreRed = data.scoreRed;
                 rlist[data.room].roominfo.scoreBlue = data.scoreBlue;
                 rlist[data.room].roominfo.clickedMsg = data.clickedMsg;
-                console.log('score cont', data.scoreRed, data.scoreBlue);
 
 
                 updatePlayerClient(data.room, 'cardclickednextturn', {datatype:'cardclickednextturn'});
