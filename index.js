@@ -620,6 +620,7 @@ io.on("connection", (socket) => {
 	});
 
     socket.on('room_check',function(data){
+        console.log('reconnectcheck ', data.room, data.playername);
         if(typeof rlist[data.room] === 'undefined' || data.room == '' || data.playername == ''){
         }else{
             try{
