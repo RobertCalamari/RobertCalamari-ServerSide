@@ -237,7 +237,7 @@ io.on("connection", (socket) => {
     socket.id = Math.random();
     SOCKET_LIST[socket.id] = socket;
     console.log(`User Connected: ${socket.id}`);
-    // socket.emit("checkforroom", {socket:socket.id});
+    socket.emit("checkforroom", {socket:socket.id});
    
 	socket.on('make_player',function(data){
 		var nameIsUsed=false;
