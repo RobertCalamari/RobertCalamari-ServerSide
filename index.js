@@ -229,7 +229,7 @@ var playerDisconnect = function(pid,forgood){
     }
 }
 
-//------------------------------------------------------------------------------------------------------------------------------------------
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////------LOGIN------///////////////////////////////////////////////////////////////////////////////////
 
 io.on("connection", (socket) => {
 
@@ -239,6 +239,7 @@ io.on("connection", (socket) => {
     console.log(`User Connected: ${socket.id}`);
     socket.emit("checkforroom", {socket:socket.id});
    
+    //Makes a user when they are not the host of the room
 	socket.on('make_player',function(data){
 		var nameIsUsed=false;
 		var loggedstatus = true;
@@ -263,7 +264,7 @@ io.on("connection", (socket) => {
                     }
                     else{
                         for(var i in rlist[data.room].players){
-                            if(rlist[data.room].players[i].name==data.playername){
+                            if(rlist[data.room].players[i].name.toUpperCase() == data.playername.toUpperCase()){
                                 nameIsUsed=true;
                                 loggedstatus = rlist[data.room].players[i].loggedin;
                                 tempsocket = rlist[data.room].players[i].id;
@@ -326,6 +327,40 @@ io.on("connection", (socket) => {
             }
         }
     });
+
+    
+
+    socket.on('room_check',function(data){
+        if(typeof rlist[data.room] === 'undefined' || data.room == '' || data.playername == ''){
+        }else{
+            try{
+                for(var i in rlist[data.room].players){
+                    if(rlist[data.room].players[i].name==data.playername){
+                        delete SOCKET_LIST[rlist[data.room].players[i].id];
+                        plist[data.socketid] = plist[rlist[data.room].players[i].id];
+                        delete plist[rlist[data.room].players[i].id];
+                        rlist[data.room].players[i].id = data.socketid;
+                        rlist[data.room].players[i].loggedin = true;
+                        updatePlayerClient(data.room, 'reconnect-mobile', {datatype:'reconnect-mobile'});
+                    }
+                }
+            }catch(e){
+                console.log(e);
+            }
+        }
+    });
+
+	socket.on('disconnect2',function(data){
+		playerDisconnect(socket.id,data.forgood);
+	});
+
+
+    //This is when a socket is disconnected from the server
+    socket.on('disconnect',function(){
+    	playerDisconnect(socket.id,false);
+    });
+
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////------CODENAMES------///////////////////////////////////////////////////////////////////////////////////
 
     socket.on('join_codename_team',function(data){   
         try{
@@ -618,35 +653,19 @@ io.on("connection", (socket) => {
         }
 	});
 
-    socket.on('room_check',function(data){
-        if(typeof rlist[data.room] === 'undefined' || data.room == '' || data.playername == ''){
-        }else{
-            try{
-                for(var i in rlist[data.room].players){
-                    if(rlist[data.room].players[i].name==data.playername){
-                        delete SOCKET_LIST[rlist[data.room].players[i].id];
-                        plist[data.socketid] = plist[rlist[data.room].players[i].id];
-                        delete plist[rlist[data.room].players[i].id];
-                        rlist[data.room].players[i].id = data.socketid;
-                        rlist[data.room].players[i].loggedin = true;
-                        updatePlayerClient(data.room, 'reconnect-mobile', {datatype:'reconnect-mobile'});
-                    }
-                }
-            }catch(e){
-                console.log(e);
-            }
-        }
-    });
-
-	socket.on('disconnect2',function(data){
-		playerDisconnect(socket.id,data.forgood);
-	});
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////------SPYFALL------///////////////////////////////////////////////////////////////////////////////////
 
 
-    //This is when a socket is disconnected from the server
-    socket.on('disconnect',function(){
-    	playerDisconnect(socket.id,false);
-    });
+
+
+
+
+
+
+
+
+
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////------  ------///////////////////////////////////////////////////////////////////////////////////
 
 });
 
