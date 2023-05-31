@@ -3,6 +3,7 @@ const app = express();
 const http = require("http");
 const { Server } = require("socket.io");
 const cors = require("cors");
+const e = require("express");
 
 app.use(cors());
 
@@ -20,6 +21,7 @@ const io = new Server(server, {
 var SOCKET_LIST = {};
 var plist = {};
 var rlist = {};
+var timers = [];
 
 //This is a room object. it has the id, name and what game(type) is selected
 var Room = function(codeid,type,maxp){
@@ -147,7 +149,7 @@ var updatePlayerClient = function(data, calltype, extrainfo) {
     }
     try{
         for(var i in rlist[data].players){
-            SOCKET_LIST[rlist[data].players[i].id].emit('updateplayersclient',{playerslist:rlist[data].players, roomtype:rlist[data].roomtype, activeplayerclient:rlist[data].players[i].name, calltype:calltype, list:extrainfo, room:data, roominfo:rlist[data].roominfo});
+            SOCKET_LIST[rlist[data].players[i].id].emit('updateplayersclient',{playerslist:rlist[data].players, roomtype:rlist[data].roomtype, playerinfo:rlist[data].players[i].gameinfo, activeplayerclient:rlist[data].players[i].name, calltype:calltype, list:extrainfo, room:data, roominfo:rlist[data].roominfo});
         }  
     }catch(e){
         console.log(e);
@@ -573,7 +575,7 @@ io.on("connection", (socket) => {
         try{
             if(typeof rlist[data.room] === 'undefined'){
             }else{
-                socket.emit('backtocodenamehome');
+                socket.emit('backtohome');
                 playerDisconnect(socket.id,true);
                 updatePlayerClient(data.room, 'codenameexit', {datatype:'codenameexit'});
             }
@@ -660,12 +662,112 @@ io.on("connection", (socket) => {
 
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////------SPYFALL------///////////////////////////////////////////////////////////////////////////////////
 
+    socket.on('start_spyfall_game',function(data){    
+        try{
+            if(typeof rlist[data.room] === 'undefined'){
+            }else{
+                if(rlist[data.room].currplayers < 4){
+                    socket.emit("startgameerrormessage", {msg:"You must have at least 4 players to play!"});
+                }else{
+                    const copyList = [...data.allLocations];
+                    let randomLocations = [];
+                    for (let i = 0; i < 26; i++) {
+                        const randomIndex = Math.floor(Math.random() * copyList.length);
+                        const word = copyList.splice(randomIndex, 1)[0];
+                        randomLocations.push(word);
+                    }
+
+                    randomLocations.sort(function(a, b){
+                        var nameA = a.location.toLowerCase(), nameB = b.location.toLowerCase();
+                        if (nameA < nameB) 
+                         return -1;
+                        if (nameA > nameB)
+                         return 1;
+                        return 0; 
+                       });
+
+                    let pickedLocation = randomLocations[Math.floor(Math.random() * randomLocations.length)];
+                    let pickedSpy = Math.floor(Math.random() * rlist[data.room].currplayers);
+                    let allNewRoles = [];
+
+                    for(let i = 0; i < rlist[data.room].currplayers;i++){
+                        if(i <= pickedLocation.roles.length){
+                            allNewRoles[allNewRoles.length] = pickedLocation.roles[i];
+                        }else{
+                            const randomIndex = Math.floor(Math.random() * pickedLocation.roles.length);
+                            allNewRoles[allNewRoles.length] = pickedLocation.roles[randomIndex];
+                        }
+                    }
+                    allNewRoles = shuffleArray(allNewRoles);
+
+                    for(let i in rlist[data.room].players){
+                        if(pickedSpy == i){
+                            rlist[data.room].players[i].gameinfo.role = 'Spy';
+                        }else{
+                            rlist[data.room].players[i].gameinfo.role = allNewRoles[i];
+                        }
+
+
+                        rlist[data.room].players[i].gameinfo.gamestart = true;
+                    }
+
+                    rlist[data.room].roominfo.where = data.where;
+                    rlist[data.room].roominfo.timer = 480;
+                    rlist[data.room].roominfo.pickedLocation = pickedLocation.location;
+                    rlist[data.room].roominfo.pickedSpy = rlist[data.room].players[pickedSpy];
+                    rlist[data.room].roominfo.randomLocations = randomLocations;
+            
+                    updatePlayerClient(data.room, 'gamestart', {datatype:'gamestart'});
+                }
+            }
+        }catch(e){
+            console.log(e);
+        }
+    });
+
+    socket.on('spyfall_timer',function(data){    
+        try{
+            if(typeof rlist[data.room] === 'undefined'){
+            }else{
+                    if(data.startorstop == 'start'){
+                        
+                        var WinnerCountdown = setInterval(function(){
+                            rlist[data.room].roominfo.timer--;
+                            for(var i in rlist[data.room].players){
+                                SOCKET_LIST[rlist[data.room].players[i].id].emit('counter', {timer:rlist[data.room].roominfo.timer});
+                            } 
+                            if (rlist[data.room].roominfo.timer <= 0) {
+                              clearInterval(WinnerCountdown);
+                            }
+                          }, 1000);
+                    }else if(data.startorstop == 'pause'){
+                        pauseInterval(WinnerCountdown);
+                        
+                    }
+            
+                    
+                
+            }
+        }catch(e){
+            console.log(e);
+        }
+    });
 
 
 
 
-
-
+    socket.on('exit_spyfall_game',function(data){
+        try{
+            if(typeof rlist[data.room] === 'undefined'){
+            }else{
+                socket.emit('backtohome');
+                playerDisconnect(socket.id,true);
+                updatePlayerClient(data.room, 'spyfallexit', {datatype:'spyfallexit'});
+            }
+        }catch(e){
+            console.log(e);
+        }
+    });
 
 
 
