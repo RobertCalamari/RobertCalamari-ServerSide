@@ -629,24 +629,29 @@ io.on("connection", (socket) => {
                 const word = copyWords.splice(randomIndex, 1)[0];
                 grayWord.push(word);
 
-                let [firstred, ...restred] = data.redTeam;
-                let spymasterredlist = [...restred,firstred];
+                // let [firstred, ...restred] = data.redTeam;
+                // let spymasterredlist = [...restred,firstred];
 
-                let [firstblue, ...restblue] = data.blueTeam;
-                let spymasterbluelist = [...restblue,firstblue];
+                // let [firstblue, ...restblue] = data.blueTeam;
+                // let spymasterbluelist = [...restblue,firstblue];
 
-                rlist[data.room].roominfo.where = data.where;
-                rlist[data.room].roominfo.selectedWords = randomWords;
-                rlist[data.room].roominfo.startingTeam = startingTeam;
-                rlist[data.room].roominfo.redWords = redWords;
-                rlist[data.room].roominfo.blueWords = blueWords;
-                rlist[data.room].roominfo.grayWord = grayWord;
-                rlist[data.room].roominfo.spymasterredlist = spymasterredlist;
-                rlist[data.room].roominfo.spymasterbluelist = spymasterbluelist;
-                rlist[data.room].roominfo.clickedMsg = data.clickedMsg;
-                rlist[data.room].roominfo.clickedCards = [[],[]];
-        
-                updatePlayerClient(data.room, 'newgame', {datatype:'newgame'});
+                rlist[data.room].roominfo.spymasterredlist.push(rlist[data.room].roominfo.spymasterredlist.shift());
+                rlist[data.room].roominfo.spymasterbluelist.push(rlist[data.room].roominfo.spymasterbluelist.shift());
+
+                setTimeout(() => {
+                    rlist[data.room].roominfo.where = data.where;
+                    rlist[data.room].roominfo.selectedWords = randomWords;
+                    rlist[data.room].roominfo.startingTeam = startingTeam;
+                    rlist[data.room].roominfo.redWords = redWords;
+                    rlist[data.room].roominfo.blueWords = blueWords;
+                    rlist[data.room].roominfo.grayWord = grayWord;
+                    rlist[data.room].roominfo.spymasterredlist = rlist[data.room].roominfo.spymasterredlist;
+                    rlist[data.room].roominfo.spymasterbluelist = rlist[data.room].roominfo.spymasterbluelist;
+                    rlist[data.room].roominfo.clickedMsg = data.clickedMsg;
+                    rlist[data.room].roominfo.clickedCards = [[],[]];
+            
+                    updatePlayerClient(data.room, 'newgame', {datatype:'newgame'});
+                }, 600);
             }
         }catch(e){
             console.log(e);
