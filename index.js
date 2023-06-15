@@ -140,7 +140,7 @@ var kickOutTimer = function(ptko) {
     	else{
 
     	}
-	 }, 480000); //200000
+	 }, 900000); //200000
 }
 
 var updatePlayerClient = function(data, calltype, extrainfo) {
