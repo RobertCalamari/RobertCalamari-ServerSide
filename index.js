@@ -148,6 +148,7 @@ var updatePlayerClient = function(data, calltype, extrainfo) {
         calltype = 'undefined';
     }
     try{
+        // console.log(calltype);
         for(var i in rlist[data].players){
             SOCKET_LIST[rlist[data].players[i].id].emit('updateplayersclient',{playerslist:rlist[data].players, roomtype:rlist[data].roomtype, playerinfo:rlist[data].players[i].gameinfo, activeplayerclient:rlist[data].players[i].name, calltype:calltype, list:extrainfo, room:data, roominfo:rlist[data].roominfo});
         }  
@@ -772,6 +773,82 @@ io.on("connection", (socket) => {
 
 
 
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////------ Planning Poker ------///////////////////////////////////////////////////////////////////////////////////
+
+    socket.on('planningpoker_update_storypoints',function(data){   
+        try{
+            if(typeof rlist[data.room] === 'undefined'){
+            }else{
+                for(var i in rlist[data.room].players){
+                    if(rlist[data.room].players[i].name==data.playername){
+                        rlist[data.room].players[i].gameinfo.storypoints = data.number;
+                    }
+                }
+                updatePlayerClient(data.room, 'itemclicked', {datatype:'itemclicked'});
+            }
+        }catch(e){
+            console.log(e);
+        }    
+    });
+
+    socket.on('planningpoker_update_days',function(data){   
+        try{
+            if(typeof rlist[data.room] === 'undefined'){
+            }else{
+                for(var i in rlist[data.room].players){
+                    if(rlist[data.room].players[i].name==data.playername){
+                        rlist[data.room].players[i].gameinfo.days = data.number;
+                    }
+                }
+                updatePlayerClient(data.room, 'itemclicked', {datatype:'itemclicked'});
+            }
+        }catch(e){
+            console.log(e);
+        }    
+    });
+
+    socket.on('planningpoker_start_round',function(data){   
+        try{
+            if(typeof rlist[data.room] === 'undefined'){
+            }else{
+                for(var i in rlist[data.room].players){
+                        rlist[data.room].players[i].gameinfo.days = '-';
+                        rlist[data.room].players[i].gameinfo.storypoints = '-';
+                }
+                rlist[data.room].roominfo.desc = data.desc;
+                rlist[data.room].roominfo.where = 'roundstart';
+                updatePlayerClient(data.room, 'roundstart', {datatype:'roundstart'});
+            }
+        }catch(e){
+            console.log(e);
+        }    
+    });
+
+    socket.on('planningpoker_in_round',function(data){   
+        try{
+            if(typeof rlist[data.room] === 'undefined'){
+            }else{
+                rlist[data.room].roominfo.where = 'inround';
+                updatePlayerClient(data.room, 'inround', {datatype:'inround'});
+            }
+        }catch(e){
+            console.log(e);
+        }    
+    });
+
+    socket.on('planningpoker_reveal_round',function(data){   
+        try{
+            if(typeof rlist[data.room] === 'undefined'){
+            }else{
+                rlist[data.room].roominfo.where = 'roundreveal';
+                updatePlayerClient(data.room, 'roundreveal', {datatype:'roundreveal'});
+            }
+        }catch(e){
+            console.log(e);
+        }    
+    });
+
+    
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////------  ------///////////////////////////////////////////////////////////////////////////////////
 
 });
