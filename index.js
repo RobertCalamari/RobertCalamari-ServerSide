@@ -246,6 +246,7 @@ io.on("connection", (socket) => {
     socket.id = Math.random();
     SOCKET_LIST[socket.id] = socket;
     console.log(`User Connected: ${socket.id}`);
+    console.log('new commit');
     socket.emit("checkforroom", {socket:socket.id});
    
     //Makes a user when they are not the host of the room
