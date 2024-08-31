@@ -31,11 +31,13 @@ var Room = function(codeid,type,maxp){
     maxplayers:maxp,
     currplayers:0,
     spectate:"",
+    totalMoney: 0, // New field
     players:{},
     spectaters:{},
     roominfo:{
-        gamestarted:false
-    }
+        gamestarted:false,
+        where: 'lobby',
+        }
     }
     return self;
 }
@@ -48,6 +50,10 @@ var Player = function(id,nameid,rname){
     loggedin:true,
     roomname:rname,
     host:false,
+    moneyHolding: 0, // New field
+    overallMoney: 0, // New field
+    isAlive: true, // New field
+    itemsHolding: [], // New field
     gameinfo: {}
     }
     //console.log("[ENTITY] - Player Entity Created: " +  nameid);
@@ -850,6 +856,32 @@ io.on("connection", (socket) => {
 
     
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////------  ------///////////////////////////////////////////////////////////////////////////////////
+
+
+    socket.on('add_money', function(data) {
+        const room = rlist[data.room];
+        if (room) {
+            room.totalMoney += 1;
+            io.to(data.room).emit('update_total_money', { totalMoney: room.totalMoney });
+        }
+    });
+
+    socket.on('get_inventory', function(data) {
+        const player = plist[socket.id];
+        if (player) {
+            socket.emit('update_inventory', { itemsHolding: player.itemsHolding });
+        }
+    });
+
+
+
+
+
+
+
+
+
+
 
 });
 
