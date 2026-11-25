@@ -14,7 +14,13 @@ const io = new Server(server, {
     origin: "*",
     methods: ["GET", "POST"],
   },
+  // Category Clash sends the host's screen (sometimes with a picture) to the phones.
+  maxHttpBufferSize: 3e6,
 });
+
+// Newer room-based games, each in its own namespace so they don't share state with the games below.
+require("./games/categoryClash")(io);
+require("./games/passwordChaos")(io);
 
 //--------------------------------------------------------------------------------------------------------------------------
 
