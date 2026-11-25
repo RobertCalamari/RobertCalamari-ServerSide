@@ -21,6 +21,7 @@ function newRoom(code, hostSocketId) {
         teams: [], // [{ name, color }]
         players: new Map(), // pid -> { pid, key, name, team, socketId, connected }
         mirror: null, // last screen the host sent: { html, meta }
+        panel: null, // { team, panel }: private controls for the team whose turn it is
         nextPid: 1,
         touched: Date.now(),
     };
@@ -45,7 +46,19 @@ function cleanTeams(raw) {
 
 module.exports = function attachCategoryClash(io) {
     const nsp = io.of("/categoryclash");
-    const broadcastRoster = (room) => nsp.to(room.code).emit("roster", rosterOf(room));
+    // Only players on the team that's up get its panel (e.g. their Letter Grab letters); everyone else gets null.
+    const sendPanels = (room) => {
+        const pn = room.panel;
+        for (const p of room.players.values()) {
+            if (!p.socketId) continue;
+            const mine = pn && p.team != null && p.team === pn.team;
+            nsp.to(p.socketId).emit("panel", { team: pn ? pn.team : null, panel: mine ? pn.panel : null });
+        }
+    };
+    const broadcastRoster = (room) => {
+        nsp.to(room.code).emit("roster", rosterOf(room));
+        sendPanels(room); // team changes can change who sees the panel
+    };
 
     startSweeper(rooms);
 
@@ -141,13 +154,41 @@ module.exports = function attachCategoryClash(io) {
                     turnTeam: Number.isInteger(meta.turnTeam) ? meta.turnTeam : null,
                     scores: Array.isArray(meta.scores) ? meta.scores.slice(0, MAX_TEAMS).map((n) => Number(n) || 0) : [],
                     privateTeam: Number.isInteger(meta.privateTeam) ? meta.privateTeam : null,
+                    activeTeam: Number.isInteger(meta.activeTeam) ? meta.activeTeam : null,
+                    acts: Array.isArray(meta.acts) ? meta.acts.filter((a) => ["open", "wk", "wpL", "oddPick"].includes(a)) : [],
                 },
             };
             touch();
             socket.to(room.code).emit("mirror", room.mirror);
         }));
 
+        socket.on("host:panel", safe((data) => {
+            if (!isHost()) return;
+            const team = data && Number.isInteger(data.team) ? data.team : null;
+            const panel = data && data.panel && typeof data.panel === "object" ? data.panel : null;
+            const json = JSON.stringify(panel || null);
+            if (json.length > 20000) return;
+            room.panel = team === null || !panel ? null : { team, panel };
+            touch();
+            sendPanels(room);
+        }));
+
         // ---------- player ----------
+        // A phone on the team that's up does something (answers, picks a square, types letters).
+        // The host's page decides whether it's allowed and replies.
+        socket.on("player:action", safe((data, ack) => {
+            const reply = typeof ack === "function" ? ack : () => { };
+            if (role !== "player" || !room || !me || !room.players.has(me.pid)) return reply({ ok: false });
+            if (me.team == null) return reply({ ok: false, error: "Join a team first." });
+            if (!room.hostSocketId) return reply({ ok: false, error: "The host's screen is reconnecting." });
+            const act = String((data && data.act) || "").slice(0, 20);
+            const payload = data && typeof data.data === "object" && data.data ? data.data : {};
+            if (JSON.stringify(payload).length > 2000) return reply({ ok: false });
+            touch();
+            nsp.to(room.hostSocketId).timeout(5000).emit("action", { pid: me.pid, name: me.name, team: me.team, act, data: payload }, (err, res) => {
+                reply(err || !res || !res[0] ? { ok: false, error: "The host's screen didn't answer. Try again." } : res[0]);
+            });
+        }));
         socket.on("player:join", safe((data, ack) => {
             if (typeof ack !== "function") return;
             const r = rooms.get(cleanCode(data && data.code));
