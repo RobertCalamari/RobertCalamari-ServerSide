@@ -22,6 +22,14 @@ var SOCKET_LIST = {};
 var plist = {};
 var rlist = {};
 var timers = [];
+var roomTimers = {}; // one Spyfall countdown interval per room
+
+function stopRoomTimer(room){
+    if(roomTimers[room]){
+        clearInterval(roomTimers[room]);
+        delete roomTimers[room];
+    }
+}
 
 //This is a room object. it has the id, name and what game(type) is selected
 var Room = function(codeid,type,maxp){
@@ -67,6 +75,7 @@ Room.onCreate = function(codename, roomtype,maxp){
 }
 
 Room.onDisconnect = function(codename){
+    stopRoomTimer(codename);
     delete rlist[codename];
     delete ROOMS[codename];
 }
@@ -396,7 +405,7 @@ io.on("connection", (socket) => {
                 for (let i = 0; i < rlist[data.room].currplayers; i++) {
                     copyPlayersList.push(i);
                 }
-                shuffledlist = shuffleArray(copyPlayersList);
+                let shuffledlist = shuffleArray(copyPlayersList);
                 if(shuffledlist.length%2 != 0){
                         let randnum = Math.floor(Math.random() * 2);
                         let newcolor = 'red';
@@ -649,6 +658,8 @@ io.on("connection", (socket) => {
                 rlist[data.room].roominfo.spymasterbluelist.push(rlist[data.room].roominfo.spymasterbluelist.shift());
 
                 setTimeout(() => {
+                    // The room can be deleted during this delay; an error here would crash the whole server.
+                    if(typeof rlist[data.room] === 'undefined'){ return; }
                     rlist[data.room].roominfo.where = data.where;
                     rlist[data.room].roominfo.selectedWords = randomWords;
                     rlist[data.room].roominfo.startingTeam = startingTeam;
@@ -699,7 +710,7 @@ io.on("connection", (socket) => {
                     let allNewRoles = [];
 
                     for(let i = 0; i < rlist[data.room].currplayers;i++){
-                        if(i <= pickedLocation.roles.length){
+                        if(i < pickedLocation.roles.length){
                             allNewRoles[allNewRoles.length] = pickedLocation.roles[i];
                         }else{
                             const randomIndex = Math.floor(Math.random() * pickedLocation.roles.length);
@@ -719,6 +730,7 @@ io.on("connection", (socket) => {
                         rlist[data.room].players[i].gameinfo.gamestart = true;
                     }
 
+                    stopRoomTimer(data.room); // a fresh game starts with a fresh clock
                     rlist[data.room].roominfo.where = data.where;
                     rlist[data.room].roominfo.timer = 480;
                     rlist[data.room].roominfo.pickedLocation = pickedLocation.location;
@@ -737,20 +749,26 @@ io.on("connection", (socket) => {
         try{
             if(typeof rlist[data.room] === 'undefined'){
             }else{
+                    const room = data.room;
                     if(data.startorstop == 'start'){
-                        
-                        var WinnerCountdown = setInterval(function(){
-                            rlist[data.room].roominfo.timer--;
-                            for(var i in rlist[data.room].players){
-                                SOCKET_LIST[rlist[data.room].players[i].id].emit('counter', {timer:rlist[data.room].roominfo.timer});
-                            } 
-                            if (rlist[data.room].roominfo.timer <= 0) {
-                              clearInterval(WinnerCountdown);
+                        // Ignore repeat presses so the clock never ticks twice per second.
+                        if(roomTimers[room]){ return; }
+                        roomTimers[room] = setInterval(function(){
+                            // An error thrown inside an interval would crash the server, so guard everything.
+                            const r = rlist[room];
+                            if(!r){ stopRoomTimer(room); return; }
+                            r.roominfo.timer--;
+                            for(var i in r.players){
+                                const s = SOCKET_LIST[r.players[i].id];
+                                if(s){ s.emit('counter', {timer:r.roominfo.timer}); }
                             }
-                          }, 1000);
+                            if (r.roominfo.timer <= 0) {
+                                stopRoomTimer(room);
+                            }
+                        }, 1000);
                     }else if(data.startorstop == 'pause'){
-                        pauseInterval(WinnerCountdown);
-                        
+                        // Remaining time stays in roominfo.timer, so 'start' resumes from it.
+                        stopRoomTimer(room);
                     }
             
                     
@@ -886,6 +904,7 @@ io.on("connection", (socket) => {
 
 });
 
-server.listen(3001, () => {
-  console.log("SERVER IS RUNNING");
+const PORT = process.env.PORT || 3001;
+server.listen(PORT, () => {
+  console.log("SERVER IS RUNNING on port " + PORT);
 });
