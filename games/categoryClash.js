@@ -104,8 +104,9 @@ module.exports = function attachCategoryClash(io) {
             if (!teams) return;
             const changed = JSON.stringify(teams) !== JSON.stringify(room.teams);
             if (!changed) return;
+            // Players keep their team number even if the host briefly shows fewer teams (e.g. the host page
+            // reloads on the setup screen before resuming a 3 or 4 team game); they get it back when it returns.
             room.teams = teams;
-            for (const p of room.players.values()) if (p.team != null && p.team >= teams.length) p.team = null;
             touch();
             broadcastRoster(room);
         }));
@@ -181,7 +182,7 @@ module.exports = function attachCategoryClash(io) {
         socket.on("player:action", safe((data, ack) => {
             const reply = typeof ack === "function" ? ack : () => { };
             if (role !== "player" || !room || !me || !room.players.has(me.pid)) return reply({ ok: false });
-            if (me.team == null) return reply({ ok: false, error: "Join a team first." });
+            if (me.team == null || me.team >= room.teams.length) return reply({ ok: false, error: "Join a team first." });
             if (!room.hostSocketId) return reply({ ok: false, error: "The host's screen is reconnecting." });
             const act = String((data && data.act) || "").slice(0, 20);
             const payload = data && typeof data.data === "object" && data.data ? data.data : {};
