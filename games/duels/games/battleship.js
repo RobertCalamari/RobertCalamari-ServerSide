@@ -70,6 +70,7 @@ module.exports = {
     name: "Battleship",
     kind: "turn",
     quick: false,
+    players: [2, 2],
     init({ rng }) {
         return {
             phase: "setup",

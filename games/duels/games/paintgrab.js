@@ -22,6 +22,7 @@ module.exports = {
     name: "Paint Grab",
     kind: "live",
     quick: true,
+    players: [2, 2],
     init({ ctx }) {
         const now = ctx.now();
         const startAt = now + START_MS;

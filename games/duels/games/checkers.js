@@ -55,6 +55,7 @@ module.exports = {
     name: "Checkers",
     kind: "turn",
     quick: false,
+    players: [2, 2],
     init({ rng }) {
         const board = Array(64).fill(null);
         for (let r = 0; r < 8; r++) {

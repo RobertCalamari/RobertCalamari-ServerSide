@@ -20,6 +20,7 @@ module.exports = {
     name: "Dots and Boxes",
     kind: "turn",
     quick: false,
+    players: [2, 2],
     init({ rng }) {
         return {
             h: Array((N + 1) * N).fill(null),

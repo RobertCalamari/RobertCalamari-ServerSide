@@ -2,6 +2,8 @@
 // the same time and watch each other's progress. A wrong tap (or running out of time) knocks you out; outlast
 // the other player to win. Both out on the same level: more right taps wins, then whoever got there faster.
 // Steps are only sent once they've flashed, so nobody can peek ahead.
+// 3+ players: last one standing. Knocked-out players stay out; ties on the same level go by right taps.
+const { ranked, seats } = require("../rank");
 const START_LEN = 3;
 const MAX_LEVEL = 25;
 const COUNT_MS = 2500;
@@ -24,8 +26,8 @@ function startLevel(state, ctx, delay) {
     state.showAt = now + delay;
     state.inputAt = state.showAt + (len - 1) * step + state.on + 250;
     state.inputEnd = state.inputAt + BASE_INPUT_MS + len * PER_STEP_MS;
-    state.progress = [0, 0];
-    state.lastAt = [null, null];
+    state.progress = state.status.map(() => 0);
+    state.lastAt = state.status.map(() => null);
     const level = state.level;
     // new steps go out the moment they flash
     for (let i = state.revealed; i < len; i++) {
@@ -40,7 +42,7 @@ function startLevel(state, ctx, delay) {
     });
     ctx.later(state.inputEnd - now, (t) => {
         if (state.level !== level || state.phase !== "input") return;
-        for (const s of [0, 1]) {
+        for (const s of seats(state.status.length)) {
             if (state.status[s] === "in") knockOut(state, s, "time", t);
         }
         settle(state, ctx);
@@ -52,10 +54,12 @@ function knockOut(state, s, why, now) {
     state.why[s] = why;
     state.outLevel[s] = state.level;
     state.outAt[s] = now;
+    state.outProgress[s] = state.progress[s];
 }
 
 function settle(state, ctx) {
     if (state.phase !== "input" || state.status.includes("in")) return;
+    if (state.status.length > 2) return settleMany(state, ctx);
     const out = state.status.map((x) => x === "out");
     if (!out[0] && !out[1]) {
         state.cleared = [state.level, state.level];
@@ -69,6 +73,19 @@ function settle(state, ctx) {
     end(state, out[0] && out[1] ? "both" : "one");
 }
 
+function settleMany(state, ctx) {
+    const alive = seats(state.status.length).filter((s) => state.status[s] === "done");
+    for (const s of alive) {
+        state.cleared[s] = state.level;
+        state.time[s] += state.lastAt[s] - state.inputAt;
+    }
+    if (alive.length === 1) return end(state, "one");
+    if (!alive.length) return end(state, "both");
+    if (state.level >= MAX_LEVEL) return end(state, "max");
+    for (const s of alive) state.status[s] = "in";
+    startLevel(state, ctx, GAP_MS);
+}
+
 function end(state, how) {
     state.phase = "done";
     state.how = how;
@@ -80,7 +97,9 @@ module.exports = {
     name: "Simon Race",
     kind: "live",
     quick: true,
-    init({ rng, ctx }) {
+    players: [2, 8],
+    init({ rng, ctx, players = 2 }) {
+        const all = (v) => new Array(players).fill(v);
         const seq = [];
         for (let i = 0; i < MAX_LEVEL + START_LEN; i++) seq.push(Math.floor(rng() * 4));
         const state = {
@@ -94,14 +113,15 @@ module.exports = {
             showAt: 0,
             inputAt: 0,
             inputEnd: 0,
-            progress: [0, 0],
-            lastAt: [null, null],
-            status: ["in", "in"],
-            why: [null, null],
-            outLevel: [null, null],
-            outAt: [null, null],
-            cleared: [0, 0],
-            time: [0, 0],
+            progress: all(0),
+            lastAt: all(null),
+            status: all("in"),
+            why: all(null),
+            outLevel: all(null),
+            outAt: all(null),
+            outProgress: all(0),
+            cleared: all(0),
+            time: all(0),
             how: null,
         };
         startLevel(state, ctx, COUNT_MS);
@@ -126,6 +146,10 @@ module.exports = {
             cleared: state.cleared,
             how: state.how,
         };
+    },
+    tv(state) {
+        const word = { in: "In", done: "Done ✓", out: "Out" };
+        return { headline: "Level " + state.level + " · " + state.len + " steps", scores: state.cleared, scoreLabel: "levels", status: state.status.map((x, s) => (x === "in" && state.phase === "input" ? state.progress[s] + "/" + state.len : word[x])) };
     },
     move(state, seat, p, ctx) {
         if (!p || typeof p !== "object" || !Number.isInteger(p.level) || !Number.isInteger(p.i) || ![0, 1, 2, 3].includes(p.color)) return { error: "Bad tap." };
@@ -152,6 +176,16 @@ module.exports = {
     },
     result(state) {
         if (state.phase !== "done") return null;
+        if (state.status.length > 2) {
+            const value = seats(state.status.length).map((s) =>
+                state.status[s] === "out" ? state.outLevel[s] * 1000 + state.outProgress[s] : 1e9 - state.time[s]
+            );
+            const r = ranked(value, "high");
+            if (state.how === "one") r.text = "Last one standing · level " + state.level + " (" + state.len + " steps)";
+            else if (state.how === "max") r.text = "Beat all " + MAX_LEVEL + " levels · fastest fingers win";
+            else r.text = "Everyone left went out on level " + state.level;
+            return r;
+        }
         if (state.how === "one") {
             const w = state.status[0] === "out" ? 1 : 0;
             return { winner: w, text: "Survived level " + state.level + " (" + state.len + " steps)" };

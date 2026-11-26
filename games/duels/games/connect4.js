@@ -25,6 +25,7 @@ module.exports = {
     name: "Connect 4",
     kind: "turn",
     quick: true,
+    players: [2, 2],
     init({ rng }) {
         return { board: Array(COLS * ROWS).fill(null), turn: rng() < 0.5 ? 0 : 1, line: null, winner: null, last: null, n: 0, resigned: null };
     },

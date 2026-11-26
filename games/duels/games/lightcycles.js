@@ -98,6 +98,7 @@ module.exports = {
     name: "Light Cycles",
     kind: "live",
     quick: true,
+    players: [2, 2],
     init({ ctx }) {
         const state = { round: 0, score: [0, 0], history: [], reason: null };
         startRound(state, ctx);

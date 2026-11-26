@@ -173,6 +173,7 @@ module.exports = {
     name: "Air Hockey",
     kind: "live",
     quick: true,
+    players: [2, 2],
     init({ ctx }) {
         const now = ctx.now();
         const state = {

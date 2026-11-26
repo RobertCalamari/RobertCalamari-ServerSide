@@ -17,6 +17,7 @@ module.exports = {
     name: "Ultimate Tic-Tac-Toe",
     kind: "turn",
     quick: false,
+    players: [2, 2],
     init({ rng }) {
         const first = rng() < 0.5 ? 0 : 1;
         return { board: Array(81).fill(null), small: Array(9).fill(null), next: null, turn: first, first, last: null, n: 0, line: null, over: false, resigned: null };

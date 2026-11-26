@@ -1,5 +1,6 @@
 // Mole Smash: one shared board, moles pop on a seeded schedule that speeds up. First tap to arrive gets
 // the mole. Gold = +3, bombs = -2. Tapping an empty hole stuns you briefly. Most points after 30s wins.
+const { ranked } = require("../rank");
 const COLS = 4;
 const ROWS = 3;
 const HOLES = COLS * ROWS;
@@ -45,7 +46,9 @@ module.exports = {
     name: "Mole Smash",
     kind: "live",
     quick: true,
-    init({ rng, ctx }) {
+    players: [2, 8],
+    init({ rng, ctx, players = 2 }) {
+        const zero = (v) => new Array(players).fill(v);
         const now = ctx.now();
         const startAt = now + START_MS;
         const endAt = startAt + PLAY_MS;
@@ -54,11 +57,11 @@ module.exports = {
             startAt,
             endAt,
             moles: makeSchedule(rng, startAt),
-            scores: [0, 0],
-            hits: [0, 0],
-            bombs: [0, 0],
-            stunUntil: [0, 0],
-            lastTap: [-1e15, -1e15],
+            scores: zero(0),
+            hits: zero(0),
+            bombs: zero(0),
+            stunUntil: zero(0),
+            lastTap: zero(-1e15),
             clock: now,
         };
         for (const m of state.moles) {
@@ -91,6 +94,9 @@ module.exports = {
             points: POINTS,
         };
     },
+    tv(state) {
+        return { headline: state.phase === "done" ? "Time!" : "Smash the moles!", endAt: state.endAt, scores: state.scores, status: state.scores.map((x, s) => state.hits[s] + " smashed" + (state.bombs[s] ? " · " + state.bombs[s] + " 💣" : "")) };
+    },
     move(state, seat, p, ctx) {
         if (!p || typeof p !== "object") return { error: "Bad tap." };
         const hole = p.hole;
@@ -120,6 +126,11 @@ module.exports = {
     },
     result(state) {
         if (state.phase !== "done") return null;
+        if (state.scores.length > 2) {
+            const r = ranked(state.scores, "high");
+            r.text = "Top score " + Math.max(...state.scores) + " · " + state.hits.reduce((x, y) => x + y, 0) + " moles smashed in all";
+            return r;
+        }
         const [a, b] = state.scores;
         if (a === b) return { winner: null, text: "Tied at " + a + " points." };
         const w = a > b ? 0 : 1;

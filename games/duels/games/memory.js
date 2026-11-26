@@ -42,6 +42,7 @@ module.exports = {
     name: "Memory Match",
     kind: "turn",
     quick: false,
+    players: [2, 2],
     init({ rng, options }) {
         const deck = options && options.deck === "cards" ? "cards" : "pictures";
         const decks = { pictures: pictures(rng), cards: playingCards(rng) };

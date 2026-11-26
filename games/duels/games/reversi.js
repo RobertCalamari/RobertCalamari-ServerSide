@@ -32,6 +32,7 @@ module.exports = {
     name: "Reversi",
     kind: "turn",
     quick: false,
+    players: [2, 2],
     init({ rng }) {
         const first = rng() < 0.5 ? 0 : 1;
         const board = Array(64).fill(null);

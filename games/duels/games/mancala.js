@@ -8,6 +8,7 @@ module.exports = {
     name: "Mancala",
     kind: "turn",
     quick: false,
+    players: [2, 2],
     init({ rng }) {
         const pits = Array(14).fill(4);
         pits[6] = 0;

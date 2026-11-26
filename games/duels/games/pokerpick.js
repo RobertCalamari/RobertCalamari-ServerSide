@@ -111,6 +111,7 @@ module.exports = {
     name: "Poker Pick",
     kind: "sim",
     quick: true,
+    players: [2, 2],
     evaluate,
     compare,
     init({ rng, ctx }) {

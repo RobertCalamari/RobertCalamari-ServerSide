@@ -10,6 +10,7 @@ module.exports = {
     name: "Tic-Tac-Toe",
     kind: "turn",
     quick: true,
+    players: [2, 2],
     init({ rng }) {
         return { board: Array(9).fill(null), turn: rng() < 0.5 ? 0 : 1, line: null };
     },

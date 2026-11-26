@@ -1,6 +1,7 @@
 // Word Scramble: both players get the same scrambled word. First to spell a real word with all the tiles
 // scores (any anagram in the list counts) and both move on. A wrong word locks you out for a moment.
 // A first-letter hint shows halfway through. First to 5 (or most after 15 words) wins.
+const { ranked } = require("../rank");
 const WIN = 5;
 const COUNT = 15;
 const READY_MS = 2500;
@@ -92,9 +93,9 @@ function makeWords(rng) {
 
 function ask(state, ctx) {
     state.phase = "ask";
-    state.placed = [0, 0];
-    state.wrongs = [0, 0];
-    state.lockUntil = [0, 0];
+    state.placed = state.score.map(() => 0);
+    state.wrongs = state.score.map(() => 0);
+    state.lockUntil = state.score.map(() => 0);
     state.answeredBy = null;
     state.solved = null;
     state.hint = false;
@@ -119,7 +120,7 @@ function reveal(state, ctx, seat, word) {
     const i = state.index;
     ctx.later(REVEAL_MS, () => {
         if (state.index !== i || state.phase !== "reveal") return;
-        if (state.score[0] >= WIN || state.score[1] >= WIN || i + 1 >= state.words.length) {
+        if (state.score.some((x) => x >= WIN) || i + 1 >= state.words.length) {
             state.over = true;
             return;
         }
@@ -133,19 +134,21 @@ module.exports = {
     name: "Word Scramble",
     kind: "live",
     quick: true,
+    players: [2, 10],
     WORDS,
-    init({ rng, ctx }) {
+    init({ rng, ctx, players = 2 }) {
+        const zero = () => new Array(players).fill(0);
         const state = {
             words: makeWords(rng),
             index: 0,
             phase: "ready",
-            placed: [0, 0],
-            wrongs: [0, 0],
-            lockUntil: [0, 0],
+            placed: zero(),
+            wrongs: zero(),
+            lockUntil: zero(),
             answeredBy: null,
             solved: null,
             hint: false,
-            score: [0, 0],
+            score: zero(),
             history: [],
             deadline: 0,
             nextAt: ctx.now() + READY_MS,
@@ -169,6 +172,8 @@ module.exports = {
             theirPlaced: state.placed[1 - seat],
             myWrongs: state.wrongs[seat],
             theirWrongs: state.wrongs[1 - seat],
+            placed: state.placed,
+            wrongs: state.wrongs,
             lockUntil: state.lockUntil[seat],
             answeredBy: state.phase === "reveal" ? state.answeredBy : null,
             solved: state.phase === "reveal" ? state.solved : null,
@@ -178,6 +183,11 @@ module.exports = {
             nextAt: state.nextAt,
             over: state.over,
         };
+    },
+    tv(state) {
+        const w = state.words[state.index];
+        const headline = state.phase === "ready" ? "Get ready…" : state.phase === "reveal" ? state.solved : w.letters.join(" ");
+        return { headline, sub: "Word " + (state.index + 1) + " of " + state.words.length, scores: state.score, status: state.score.map((x, s) => (state.phase === "reveal" && state.answeredBy === s ? "Solved it!" : state.phase === "ask" ? state.placed[s] + "/" + w.word.length : null)), win: WIN };
     },
     move(state, seat, p, ctx) {
         if (!p || typeof p !== "object" || !Number.isInteger(p.q)) return { error: "Bad move." };
@@ -205,6 +215,12 @@ module.exports = {
     },
     result(state) {
         if (!state.over) return null;
+        if (state.score.length > 2) {
+            const r = ranked(state.score, "high");
+            const top = Math.max(...state.score);
+            r.text = (top >= WIN ? "First to " + WIN : "Most words") + " · " + top + " solved";
+            return r;
+        }
         const [a, b] = state.score;
         if (a === b) return { winner: null, text: "Tied " + a + "-" + b };
         const w = a > b ? 0 : 1;

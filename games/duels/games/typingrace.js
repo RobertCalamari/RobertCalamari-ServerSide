@@ -1,6 +1,8 @@
 // Typing Race: both type the same seeded sentence. Phones send their whole typed text a few times a second;
 // the server measures the correct prefix (capped at a superhuman speed) and moves each car. First to type the
 // sentence exactly takes the round; if time runs out the furthest car does. First to 2 rounds (ties replay, 5 max).
+// 3+ players: same rules, one car each; first to 2 rounds with a clear lead.
+const { ranked, seats } = require("../rank");
 const WIN = 2;
 const MAX_ROUNDS = 5;
 const COUNT_MS = 3000;
@@ -114,9 +116,10 @@ function startRound(state, ctx) {
     state.startAt = now + COUNT_MS;
     state.endAt = state.startAt + ROUND_MS;
     state.nextAt = null;
-    state.progress = [0, 0];
-    state.err = [false, false];
-    state.doneAt = [null, null];
+    const n = state.score.length;
+    state.progress = new Array(n).fill(0);
+    state.err = new Array(n).fill(false);
+    state.doneAt = new Array(n).fill(null);
     state.roundWinner = null;
     const round = state.round;
     ctx.later(COUNT_MS, () => {
@@ -130,22 +133,23 @@ function startRound(state, ctx) {
 function endRound(state, ctx, now) {
     const s = state.sentences[state.round - 1];
     state.phase = "result";
-    const [a, b] = state.progress;
-    let w = null;
-    if (state.doneAt[0] !== null) w = 0;
-    else if (state.doneAt[1] !== null) w = 1;
-    else if (a !== b) w = a > b ? 0 : 1;
+    const all = seats(state.score.length);
+    const top = Math.max(...state.progress);
+    const lead = all.filter((p) => state.progress[p] === top);
+    let w = all.find((p) => state.doneAt[p] !== null);
+    if (w === undefined) w = lead.length === 1 && top > 0 ? lead[0] : null;
     state.roundWinner = w;
     if (w !== null) state.score[w]++;
     const ms = Math.min(now, state.endAt) - state.startAt;
     state.history.push({
         winner: w,
         finished: w !== null && state.doneAt[w] !== null,
-        wpm: [0, 1].map((p) => wpm(state.progress[p], ms)),
-        pct: [0, 1].map((p) => Math.round((state.progress[p] / s.length) * 100)),
+        wpm: all.map((p) => wpm(state.progress[p], ms)),
+        pct: all.map((p) => Math.round((state.progress[p] / s.length) * 100)),
         ms,
     });
-    const over = state.score[0] >= WIN || state.score[1] >= WIN || state.round >= MAX_ROUNDS;
+    const best = Math.max(...state.score);
+    const over = (best >= WIN && state.score.filter((x) => x === best).length === 1) || state.round >= MAX_ROUNDS;
     state.nextAt = over ? null : now + PAUSE_MS;
     const round = state.round;
     ctx.later(PAUSE_MS, () => {
@@ -160,9 +164,10 @@ module.exports = {
     name: "Typing Race",
     kind: "live",
     quick: true,
+    players: [2, 8],
     SENTENCES,
-    init({ rng, ctx }) {
-        const state = { round: 0, score: [0, 0], history: [], sentences: pickSentences(rng) };
+    init({ rng, ctx, players = 2 }) {
+        const state = { round: 0, score: new Array(players).fill(0), history: [], sentences: pickSentences(rng) };
         startRound(state, ctx);
         return state;
     },
@@ -185,6 +190,10 @@ module.exports = {
             doneAt: state.doneAt,
             roundWinner: state.roundWinner,
         };
+    },
+    tv(state) {
+        const s = state.sentences[state.round - 1];
+        return { headline: state.phase === "count" ? "Round " + state.round + " · get ready" : s, endAt: state.phase === "play" ? state.endAt : null, scores: state.score, status: state.score.map((x, p) => Math.round((state.progress[p] / s.length) * 100) + "%" + (state.doneAt[p] !== null ? " 🏁" : "")), win: WIN };
     },
     move(state, seat, p, ctx) {
         if (!p || typeof p !== "object" || !Number.isInteger(p.round) || typeof p.text !== "string") return { error: "Bad move." };
@@ -216,8 +225,13 @@ module.exports = {
     },
     result(state) {
         if (state.phase !== "done") return null;
-        const [a, b] = state.score;
         const fast = (p) => Math.max(0, ...state.history.map((h) => h.wpm[p]));
+        if (state.score.length > 2) {
+            const r = ranked(state.score, "high");
+            r.text = state.history.length + " rounds · top speed " + Math.max(...seats(state.score.length).map(fast)) + " WPM";
+            return r;
+        }
+        const [a, b] = state.score;
         if (a === b) return { winner: null, text: "Even at " + a + "-" + b + " · top speed " + Math.max(fast(0), fast(1)) + " WPM" };
         const w = a > b ? 0 : 1;
         return { winner: w, text: "Won " + state.score[w] + "-" + state.score[1 - w] + " · top speed " + fast(w) + " WPM" };

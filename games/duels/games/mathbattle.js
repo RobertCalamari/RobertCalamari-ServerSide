@@ -1,5 +1,6 @@
 // Math Battle: both players get the same question with 4 choices. First correct tap takes the point;
 // a wrong tap locks you out of that question. First to 7 (or most after 20 questions) wins.
+const { ranked } = require("../rank");
 const WIN = 7;
 const COUNT = 20;
 const READY_MS = 2500;
@@ -50,8 +51,8 @@ function makeQuestion(rng, i) {
 
 function ask(state, ctx) {
     state.phase = "ask";
-    state.locked = [false, false];
-    state.picks = [null, null];
+    state.locked = state.score.map(() => false);
+    state.picks = state.score.map(() => null);
     state.answeredBy = null;
     state.deadline = ctx.now() + ASK_MS;
     const i = state.index;
@@ -69,7 +70,7 @@ function reveal(state, ctx, seat) {
     const i = state.index;
     ctx.later(REVEAL_MS, () => {
         if (state.index !== i || state.phase !== "reveal") return;
-        if (state.score[0] >= WIN || state.score[1] >= WIN || i + 1 >= state.questions.length) {
+        if (state.score.some((x) => x >= WIN) || i + 1 >= state.questions.length) {
             state.over = true;
             return;
         }
@@ -83,10 +84,11 @@ module.exports = {
     name: "Math Battle",
     kind: "live",
     quick: true,
-    init({ rng, ctx }) {
+    players: [2, 10],
+    init({ rng, ctx, players = 2 }) {
         const questions = [];
         for (let i = 0; i < COUNT; i++) questions.push(makeQuestion(rng, i));
-        const state = { questions, index: 0, phase: "ready", locked: [false, false], picks: [null, null], answeredBy: null, score: [0, 0], history: [], deadline: 0, nextAt: ctx.now() + READY_MS, over: false };
+        const state = { questions, index: 0, phase: "ready", locked: new Array(players).fill(false), picks: new Array(players).fill(null), answeredBy: null, score: new Array(players).fill(0), history: [], deadline: 0, nextAt: ctx.now() + READY_MS, over: false };
         ctx.later(READY_MS, () => ask(state, ctx));
         return state;
     },
@@ -102,9 +104,11 @@ module.exports = {
             q: shown ? q.q : null,
             choices: shown ? q.choices : null,
             myLock: state.locked[seat],
-            theirLock: state.locked[1 - seat],
+            theirLock: state.locked.every((x, s) => s === seat || x),
             myPick: state.picks[seat],
-            theirPick: revealed ? state.picks[1 - seat] : null,
+            theirPick: revealed && state.score.length === 2 ? state.picks[1 - seat] : null,
+            locked: state.locked,
+            picks: revealed ? state.picks : null,
             answer: revealed ? q.answer : null,
             answeredBy: revealed ? state.answeredBy : null,
             score: state.score,
@@ -113,6 +117,11 @@ module.exports = {
             nextAt: state.nextAt,
             over: state.over,
         };
+    },
+    tv(state) {
+        const q = state.questions[state.index];
+        const headline = state.phase === "ready" ? "Get ready…" : state.phase === "reveal" ? q.q + " = " + q.choices[q.answer] : q.q;
+        return { headline, sub: "Question " + (state.index + 1) + " of " + state.questions.length, scores: state.score, status: state.score.map((x, s) => (state.phase === "reveal" && state.answeredBy === s ? "Got it!" : state.locked[s] ? "✕ Locked out" : null)), win: WIN };
     },
     move(state, seat, p, ctx) {
         const qi = Number(p && p.q);
@@ -126,11 +135,17 @@ module.exports = {
             return { ok: true };
         }
         state.locked[seat] = true;
-        if (state.locked[1 - seat]) reveal(state, ctx, null);
+        if (state.locked.every(Boolean)) reveal(state, ctx, null);
         return { ok: true };
     },
     result(state) {
         if (!state.over) return null;
+        if (state.score.length > 2) {
+            const r = ranked(state.score, "high");
+            const top = Math.max(...state.score);
+            r.text = (top >= WIN ? "First to " + WIN : "Most right answers") + " · " + top + " points";
+            return r;
+        }
         const [a, b] = state.score;
         if (a === b) return { winner: null, text: "Tied " + a + "-" + b };
         const w = a > b ? 0 : 1;

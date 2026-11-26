@@ -145,6 +145,7 @@ module.exports = {
     name: "Penguin Push",
     kind: "sim",
     quick: true,
+    players: [2, 2],
     init({ ctx }) {
         const spots = [[-42, 52], [0, 64], [42, 52]];
         const penguins = [];

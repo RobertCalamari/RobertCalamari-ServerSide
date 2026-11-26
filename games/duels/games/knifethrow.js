@@ -89,6 +89,7 @@ module.exports = {
     name: "Knife Throw",
     kind: "live",
     quick: true,
+    players: [2, 2],
     angle,
     init({ rng, ctx }) {
         const state = {
