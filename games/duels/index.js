@@ -54,7 +54,8 @@ module.exports = function attachDuels(io) {
         room.timers = [];
     }
 
-    function viewFor(room, seat) {
+    // lite: mid-match updates skip the games list and stats (the client keeps its last copy)
+    function viewFor(room, seat, lite) {
         const m = room.match;
         let match = null;
         if (m) {
@@ -67,6 +68,7 @@ module.exports = function attachDuels(io) {
             }
             match = { no: m.no, game: m.game, name: g.name, kind: g.kind, view: gameView, result: m.result, startedAt: m.startedAt };
         }
+        if (lite) return { lite: true, code: room.code, seat, players: room.seats.map((s) => (s ? { name: s.name, connected: s.connected } : null)), match, serverNow: Date.now(), notice: null };
         return {
             code: room.code,
             seat,
@@ -80,9 +82,10 @@ module.exports = function attachDuels(io) {
         };
     }
 
-    function broadcast(room) {
+    function broadcast(room, lite) {
+        const quick = lite && room.match && !room.match.result;
         room.seats.forEach((s, seat) => {
-            if (s && s.socketId) nsp.to(s.socketId).emit("room", viewFor(room, seat));
+            if (s && s.socketId) nsp.to(s.socketId).emit("room", viewFor(room, seat, quick));
         });
     }
 
@@ -123,10 +126,11 @@ module.exports = function attachDuels(io) {
             later: (ms, fn) => {
                 const t = setTimeout(
                     safe(() => {
+                        room.timers = room.timers.filter((x) => x !== t);
                         if (!room.match || room.match.no !== no || room.match.result) return;
                         fn(Date.now());
                         check(room);
-                        broadcast(room);
+                        broadcast(room, true);
                     }),
                     ms
                 );
@@ -271,7 +275,7 @@ module.exports = function attachDuels(io) {
             }
             touch();
             check(room);
-            broadcast(room);
+            if (!res.quiet || room.match.result) broadcast(room, true);
             reply(res.error ? { ok: false, error: res.error } : { ok: true });
         }));
 
