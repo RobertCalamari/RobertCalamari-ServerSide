@@ -1,4 +1,5 @@
 const SUITS = ["S", "H", "D", "C"];
+const MEMORIZE_MS = 10000;
 const PICK_MS = 30000;
 const REVEAL_MS = 6000;
 const FINAL_MS = 4000;
@@ -50,13 +51,17 @@ function deal(state, rng, ctx) {
         [deck[i], deck[j]] = [deck[j], deck[i]];
     }
     state.round++;
-    state.phase = "pick";
+    state.phase = "memorize";
     state.grid = deck.slice(0, 12);
     state.community = deck.slice(12, 15);
     state.picks = [null, null];
-    state.deadline = ctx.now() + PICK_MS;
+    state.memorizeUntil = ctx.now() + MEMORIZE_MS;
+    state.deadline = state.memorizeUntil + PICK_MS;
     const round = state.round;
-    ctx.later(PICK_MS + 300, () => {
+    ctx.later(MEMORIZE_MS, () => {
+        if (state.round === round && state.phase === "memorize") state.phase = "pick";
+    });
+    ctx.later(MEMORIZE_MS + PICK_MS + 300, () => {
         if (state.round !== round || state.phase !== "pick") return;
         resolve(state, rng, ctx, true);
     });
@@ -109,7 +114,7 @@ module.exports = {
     evaluate,
     compare,
     init({ rng, ctx }) {
-        const state = { round: 0, wins: [0, 0], phase: "pick", grid: [], community: [], picks: [null, null], deadline: 0, reveal: null, nextAt: null, over: false };
+        const state = { round: 0, wins: [0, 0], phase: "pick", grid: [], community: [], picks: [null, null], memorizeUntil: 0, deadline: 0, reveal: null, nextAt: null, over: false };
         deal(state, rng, ctx);
         return state;
     },
@@ -117,8 +122,9 @@ module.exports = {
         return {
             round: state.round,
             phase: state.phase,
-            grid: state.grid,
+            grid: state.phase === "pick" ? state.grid.map(() => null) : state.grid,
             community: state.community,
+            memorizeUntil: state.memorizeUntil,
             myPick: state.picks[seat],
             theyLocked: !!state.picks[1 - seat],
             wins: state.wins,
@@ -129,6 +135,7 @@ module.exports = {
         };
     },
     move(state, seat, p, ctx) {
+        if (state.phase === "memorize") return { error: "Memorize first! Picking opens when the cards flip." };
         if (state.phase !== "pick") return { error: "Wait for the next deal." };
         if (state.picks[seat]) return { error: "You already locked in." };
         const pick = Array.isArray(p.pick) ? p.pick.map(Number) : [];

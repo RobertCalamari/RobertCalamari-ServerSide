@@ -156,6 +156,8 @@ module.exports = function attachCategoryClash(io) {
                     privateTeam: Number.isInteger(meta.privateTeam) ? meta.privateTeam : null,
                     activeTeam: Number.isInteger(meta.activeTeam) ? meta.activeTeam : null,
                     acts: Array.isArray(meta.acts) ? meta.acts.filter((a) => ["open", "wk", "wpL", "oddPick"].includes(a)) : [],
+                    board: meta.board && typeof meta.board === "object" && JSON.stringify(meta.board).length < 40000 ? meta.board : null,
+                    draft: meta.draft && typeof meta.draft === "object" && JSON.stringify(meta.draft).length < 10000 ? meta.draft : null,
                 },
             };
             touch();
@@ -167,7 +169,7 @@ module.exports = function attachCategoryClash(io) {
             const team = data && Number.isInteger(data.team) ? data.team : null;
             const panel = data && data.panel && typeof data.panel === "object" ? data.panel : null;
             const json = JSON.stringify(panel || null);
-            if (json.length > 20000) return;
+            if (json.length > 60000) return;
             room.panel = team === null || !panel ? null : { team, panel };
             touch();
             sendPanels(room);

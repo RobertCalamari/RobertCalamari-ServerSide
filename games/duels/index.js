@@ -36,6 +36,7 @@ function newRoom(code) {
         match: null, // { id, game, state, result, seed, startedAt }
         gauntlet: null, // { rounds, list, index, score:[a,b], done }
         timers: [],
+        notice: null,
         touched: Date.now(),
         matchNo: 0,
     };
@@ -75,6 +76,7 @@ module.exports = function attachDuels(io) {
             gauntlet: room.gauntlet,
             games: catalog(),
             serverNow: Date.now(),
+            notice: room.notice && Date.now() - room.notice.at < 8000 ? room.notice.text : null,
         };
     }
 
@@ -245,10 +247,8 @@ module.exports = function attachDuels(io) {
 
         socket.on("duel:menu", safe(() => {
             if (!mine()) return;
-            if (room.match && !room.match.result) {
-                // leaving mid-game counts as a forfeit
-                finish(room, { winner: 1 - seat, text: room.seats[seat].name + " left the game." });
-            }
+            // leaving mid-game just cancels it; nobody's record changes
+            room.notice = room.match && !room.match.result ? { text: room.seats[seat].name + " left the game.", at: Date.now() } : null;
             clearTimers(room);
             room.match = null;
             room.gauntlet = null;
