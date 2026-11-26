@@ -21,6 +21,7 @@ const io = new Server(server, {
 // Newer room-based games, each in its own namespace so they don't share state with the games below.
 require("./games/categoryClash")(io);
 require("./games/passwordChaos")(io);
+require("./games/duels")(io);
 
 //--------------------------------------------------------------------------------------------------------------------------
 
