@@ -14,7 +14,6 @@ SETS.forEach((set, s) =>
     })
 );
 const TOP = RARITIES.length - 1;
-const SHARE = RARITIES.reduce((t, r) => t + r.share, 0);
 
 // a held card is a key: card index * 2 + foil
 const idxOf = (k) => k >> 1;
@@ -33,10 +32,19 @@ function shuffle(rng, list) {
     return a;
 }
 
-function rollRarity(rng) {
-    let x = rng() * SHARE;
-    for (let r = 0; r < RARITIES.length; r++) {
-        x -= RARITIES[r].share;
+// pack recipe, set by the game's config: priceScale, packSize, hitSlot (last card is Rare or better), hitShare, rarShape
+let C = { priceScale: 1, packSize: 5, hitSlot: false, hitShare: null, rarShape: null };
+const configure = (cfg) => (C = cfg);
+const rarVal = (r) => (C.rarShape ? C.rarShape[r] : RARITIES[r].value);
+const basePack = (s) => SETS[s].packPrice * (C.priceScale || 1);
+const ALL = RARITIES.map((r) => r.share);
+const FILL = RARITIES.map((r, i) => (i <= 1 ? r.share : 0));
+const slotShares = (j) => (C.hitSlot ? (j === C.packSize - 1 ? C.hitShare : FILL) : ALL);
+
+function roll(rng, shares) {
+    let x = rng() * shares.reduce((t, v) => t + v, 0);
+    for (let r = 0; r < shares.length; r++) {
+        x -= shares[r];
         if (x < 0) return r;
     }
     return 0;
@@ -49,44 +57,43 @@ function cardOf(rng, s, r) {
 }
 
 function openPack(rng, s, size) {
-    return Array.from({ length: size }, () => cardOf(rng, s, rollRarity(rng)) * 2 + (rng() < FOIL.chance ? 1 : 0)).sort((a, b) => CARDS[idxOf(a)].r - CARDS[idxOf(b)].r);
+    return Array.from({ length: size }, (_, j) => cardOf(rng, s, roll(rng, slotShares(j))) * 2 + (rng() < FOIL.chance ? 1 : 0)).sort((a, b) => CARDS[idxOf(a)].r - CARDS[idxOf(b)].r);
 }
 
 const value = (state, k) => r2(state.price[idxOf(k)] * (isFoil(k) ? foilMult(CARDS[idxOf(k)].r) : 1));
 
-// raw expected value of one card of set s (pop = 1, foils included), before scaling
-function rawCardEV(s) {
+// expected value of a pack of set s; card value per rarity from val(r) (avg price of that rarity in the set)
+function packValue(s, size, val) {
     let ev = 0;
-    RARITIES.forEach((r, ri) => BY[s][ri].length && (ev += (r.share / SHARE) * RARITIES[ri].value * (1 + FOIL.chance * (foilMult(ri) - 1))));
-    return ev * SETS[s].packPrice * SETS[s].demand;
+    for (let j = 0; j < size; j++) {
+        const sh = slotShares(j);
+        const tot = sh.reduce((t, v, r) => t + (BY[s][r].length ? v : 0), 0);
+        sh.forEach((v, r) => BY[s][r].length && (ev += (v / tot) * val(r) * (1 + FOIL.chance * (foilMult(r) - 1))));
+    }
+    return ev;
 }
 
 // value = pack price x rarity value x set demand x popularity, scaled per set so a pack's expected value is
 // cfg.packEV x its price (x demand^cfg.demandTilt, so hyped sets rip a little better)
 function initMarket(state, rng, cfg, size) {
-    const scale = SETS.map((set, s) => (cfg.packEV * set.packPrice * Math.pow(set.demand, cfg.demandTilt)) / (rawCardEV(s) * size));
+    configure(cfg);
+    const raw = (s) => packValue(s, size, (r) => basePack(s) * rarVal(r) * SETS[s].demand);
+    const scale = SETS.map((set, s) => (cfg.packEV * basePack(s) * Math.pow(set.demand, cfg.demandTilt)) / raw(s));
     state.pop = CARDS.map((c) => r2(Math.exp(gauss(rng) * (c.r >= 3 ? 0.3 : 0.2) - (c.r >= 3 ? 0.045 : 0.02))));
-    state.base = CARDS.map((c, i) => Math.max(0.05, r2(SETS[c.s].packPrice * RARITIES[c.r].value * SETS[c.s].demand * state.pop[i] * scale[c.s])));
+    state.base = CARDS.map((c, i) => Math.max(0.05, r2(basePack(c.s) * rarVal(c.r) * SETS[c.s].demand * state.pop[i] * scale[c.s])));
     state.price = state.base.slice();
     state.lvl = SETS.map(() => 1);
     state.trend = SETS.map(() => 0);
     state.next = SETS.map(() => gauss(rng) * 0.04);
     state.flow = CARDS.map(() => 0);
-    state.pack = SETS.map((s) => s.packPrice);
-    state.packHist = SETS.map((s) => [s.packPrice]);
+    state.pack = SETS.map((s, p) => r2(basePack(p)));
+    state.packHist = SETS.map((s, p) => [r2(basePack(p))]);
     state.hist = state.price.map((p) => [p]);
 }
 
-// pack expected value at current prices (for the balance check)
+// pack expected value at current prices
 function packEV(state, s, size) {
-    let ev = 0;
-    RARITIES.forEach((r, ri) => {
-        const list = BY[s][ri].length ? BY[s][ri] : null;
-        if (!list) return;
-        const avg = list.reduce((t, i) => t + state.price[i], 0) / list.length;
-        ev += (r.share / SHARE) * avg * (1 + FOIL.chance * (foilMult(ri) - 1));
-    });
-    return ev * size;
+    return packValue(s, size, (r) => BY[s][r].reduce((t, i) => t + state.price[i], 0) / BY[s][r].length);
 }
 
 // news: text plus price effects (applied in the overnight move before that day) and floor effects (that day)
@@ -164,4 +171,4 @@ function overnight(state, rng, n, ripped) {
     state.hist.forEach((h, i) => h.push(state.price[i]));
 }
 
-module.exports = { D, CARDS, BY, TOP, idxOf, isFoil, foilMult, r2, pick, gauss, shuffle, openPack, value, initMarket, packEV, makeNews, newsFor, forecast, overnight };
+module.exports = { configure, basePack, D, CARDS, BY, TOP, idxOf, isFoil, foilMult, r2, pick, gauss, shuffle, openPack, value, initMarket, packEV, makeNews, newsFor, forecast, overnight };

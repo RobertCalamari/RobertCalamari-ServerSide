@@ -17,20 +17,25 @@ const CFG = {
     activeSets: ["ember", "tidebound", "neon", "crystal", "starfall", "vintage"], // set ids from cardshop/sets.js; null = all 10
     cash: 300,
     packSize: 5,
-    slots: 3,
-    maxSlots: 7,
-    slotCost: [60, 120, 200, 300],
+    slots: 5,
+    maxSlots: 10,
+    slotCost: [50, 90, 140, 200, 270],
     stockPerPlayer: 3, // packs per player per set per day
     setsPerDay: [5, 6], // the distributor carries a rotating selection
     customers: [8, 25], // day 1 -> last day, for 3 players (scaled by table size)
     pcts: [80, 100, 120, 150],
+    priceScale: 2.5, // multiplies every set's pack price (and so card values and customer budgets)
     packEV: 0.95, // a pack's expected card value / its price at the open
+    hitSlot: true, // the last card of every pack is Rare or better
+    hitShare: [0, 0, 72, 21, 6, 1], // odds for that card by rarity (C, U, R, Holo, Ultra, Secret)
+    rarShape: [0.07, 0.14, 0.38, 0.75, 2, 5], // card value by rarity, relative (null = sets.js values)
     demandTilt: 0.25,
-    scarcity: 0.04, // sealed price bump per night when the distributor sold out of a set
-    scarcityCap: 1.35,
+    scarcity: 0.025, // sealed price bump per night when the distributor sold out of a set
+    scarcityCap: 1.2,
     singlesMarkup: 1.1,
     maxListings: 6,
-    ms: { buy: 60000, buy1: 80000, setup: 45000, setup1: 60000, sell: 45000, lastIn: 9000, report: 12000, offer: 8000, tick: 1000 },
+    ms: { buy: 60000, buy1: 80000, setup: 45000, setup1: 60000, sell: 45000, lastIn: 9000, report: 12000, offer: 8000, counter: 4000, tick: 1000 },
+    counters: 2, // haggle rounds you get per customer
     queue: 3, // customers waiting at one booth before others give up
     job: { pay: 25, items: 10, ms: 15000 }, // the odd job: sort cards into bins by type, once a day when broke
     up: {
@@ -158,8 +163,8 @@ function startSell(state, ctx) {
     const avgAppeal = seats(n).reduce((x, s) => x + appeal(state, s), 0) / n;
     const count = Math.max(3, Math.round((CFG.customers[0] + (CFG.customers[1] - CFG.customers[0]) * t) * (0.5 + n / 6) * news.traffic * (1 + 0.04 * avgAppeal)));
     const span = CFG.ms.sell - CFG.ms.lastIn;
-    const crowd = Array.from({ length: count }, (_, i) => ({ ...makeCustomer(rng, state.day, news, state.active), at: 800 + Math.floor(((i + rng() * 0.8) / count) * span) }));
-    for (let i = 0; i < news.whale; i++) crowd.push({ ty: "whale", budget: 800, mult: 1.5, carry: false, want: news.hot >= 0 ? news.hot : state.active[0], at: 2500 + i * 12000 });
+    const crowd = Array.from({ length: count }, (_, i) => ({ ...makeCustomer(rng, state.day, news, state.active, CFG.priceScale), at: 800 + Math.floor(((i + rng() * 0.8) / count) * span) }));
+    for (let i = 0; i < news.whale; i++) crowd.push({ ty: "whale", budget: 800 * CFG.priceScale, mult: 1.5, carry: false, want: news.hot >= 0 ? news.hot : state.active[0], at: 2500 + i * 12000 });
     crowd.sort((a, b) => a.at - b.at);
     state.crowd = { list: crowd, i: 0, start: ctx.now() };
     state.q = state.cash.map(() => []);
@@ -233,7 +238,7 @@ function haggle(state, cu, pk, ctx) {
     const cash = r2(Math.min(pk.w, pk.list * K.open, cu.budget));
     let bump = r2(Math.min(pk.w, pk.list * K.bump, cu.budget));
     if (!(rng() < K.bumpP) || bump <= cash + 0.04) bump = null;
-    const o = { kind: "buy", ty: cu.ty, slot: pk.slot, k: d.k, p: d.p, list: pk.list, m: r2(pk.m), cash, bump };
+    const o = { kind: "buy", ty: cu.ty, slot: pk.slot, k: d.k, p: d.p, list: pk.list, m: r2(pk.m), cash, bump, w: r2(Math.min(pk.w, cu.budget)), giveV: 0, rounds: 0 };
     if (rng() < K.tradeP && cash >= 3) {
         for (let tries = 0; tries < 14; tries++) {
             const i = M.pick(rng, state.pool);
@@ -249,6 +254,8 @@ function haggle(state, cu, pk, ctx) {
             }
         }
     }
+    o.log = [{ who: "them", amt: r2(o.cash + o.giveV) }];
+    o.opts = counters(o);
     enqueue(state, s, o, ctx.now());
     bubble(state, s, cu.ty, o.kind === "trade" ? "Trade you?" : "Offered " + money(cash) + "!", "offer");
 }
@@ -294,9 +301,53 @@ function offerFrom(state, cu, path, ctx) {
     const k = i * 2 + (ctx.rng() < FOIL.chance ? 1 : 0);
     const pct = CFG.up.lic.pct[state.up[to].lic - 1];
     const m = value(state, k);
-    enqueue(state, to, { kind: "sell", ty: cu.ty, k, m, cash: Math.max(0.05, r2((m * pct) / 100)), bump: null }, ctx.now());
+    enqueue(state, to, { kind: "sell", ty: cu.ty, k, m, cash: Math.max(0.05, r2((m * pct) / 100)), bump: null, giveV: 0, rounds: 0, log: [], opts: [] }, ctx.now());
     bubble(state, to, cu.ty, "Wanna buy this?", "offer");
     return to;
+}
+
+// one-tap counter offers (totals, cash + their card): meet halfway, 95% of the sticker, full sticker
+function counters(o) {
+    const t = r2(o.cash + (o.giveV || 0));
+    if (o.kind === "sell" || o.rounds >= CFG.counters || t >= o.list - 0.01) return [];
+    const out = [{ id: "half", amt: r2((t + o.list) / 2) }, { id: "95", amt: r2(o.list * 0.95) }, { id: "full", amt: o.list }];
+    return out.filter((x, i) => x.amt > t + 0.01 && !out.slice(i + 1).some((y) => Math.abs(y.amt - x.amt) < 0.02));
+}
+
+// you counter: the customer's personality (and a coin flip) decides: take it, come back with their own number, or walk
+function counter(state, s, o, i, ctx) {
+    const now = ctx.now();
+    const c = Number.isInteger(i) ? o.opts[i] : null;
+    if (!c) return { error: o.rounds >= CFG.counters ? "They won't haggle any more." : "Pick a counter offer." };
+    const K = KINDS[o.ty];
+    const t = r2(o.cash + o.giveV);
+    const push = Math.min(1, (c.amt - t) / Math.max(0.01, o.list - t));
+    o.rounds++;
+    o.log.push({ who: "you", amt: c.amt });
+    o.until = Math.max(o.until, now) + CFG.ms.counter;
+    bubble(state, s, o.ty, "Haggling!", "counter");
+    const rng = ctx.rng;
+    const fits = c.amt <= o.w + 0.001;
+    const yes = fits && rng() < K.yes * (1 - push * K.push) + (c.id === "half" ? K.half : 0);
+    if (yes) {
+        o.cash = r2(c.amt - o.giveV);
+        sellTo(state, s, o.slot, o.cash, o.kind === "trade" ? { k: o.give, v: o.giveV } : null, o.ty);
+        bubble(state, s, o.ty, "Deal at " + money(c.amt) + "!", "deal");
+        nextOffer(state, s, now);
+        return { ok: true };
+    }
+    const back = r2(Math.min(o.w, t + (c.amt - t) * K.meet * (0.7 + rng() * 0.6)));
+    if (rng() < K.walk + push * 0.35 || back <= t + 0.01 || o.rounds > CFG.counters) {
+        bubble(state, s, o.ty, "Walked away", "walk");
+        nextOffer(state, s, now);
+        return { ok: true };
+    }
+    o.cash = r2(back - o.giveV);
+    o.bump = null;
+    o.log.push({ who: "them", amt: back });
+    o.opts = counters(o);
+    bubble(state, s, o.ty, "How about " + money(back) + "?", "counter");
+    return { ok: true };
 }
 
 // answer the offer at the front of your line
@@ -309,12 +360,14 @@ function answer(state, s, p, ctx) {
         nextOffer(state, s, now);
         return { error: "Too slow, they walked off." };
     }
+    if (p.counter !== undefined) return o.kind === "sell" ? { error: "No haggling on that one, take it or leave it." } : counter(state, s, o, p.counter, ctx);
     if (p.yes !== true) {
-        if (o.bump !== null && o.bump !== undefined) {
+        if (o.bump !== null && o.bump !== undefined && !o.rounds) {
             o.cash = o.bump;
             o.bump = null;
-            o.round = 1;
             o.until = now + CFG.ms.offer;
+            o.log.push({ who: "you", amt: null }, { who: "them", amt: r2(o.cash + o.giveV) });
+            o.opts = counters(o);
             bubble(state, s, o.ty, o.kind === "trade" ? "Okay, I'll add more cash!" : "Fine… " + money(o.cash) + "?", "counter");
             return { ok: true };
         }
@@ -739,7 +792,7 @@ module.exports = {
         const own = ownList(state, seat);
         own.forEach(([k]) => refs.add(idxOf(k)));
         state.rips[seat].forEach((r) => r.keys.forEach((k) => refs.add(idxOf(k))));
-        const q = state.q[seat].slice(0, 2);
+        const q = state.q[seat].slice(0, 2).map(({ w, bump, ...o }) => o);
         q.forEach((o) => [o.k, o.give].forEach((k) => k !== undefined && refs.add(idxOf(k))));
         state.disp[seat].forEach((d) => d && d.k !== undefined && refs.add(idxOf(d.k)));
         const t = state.today[seat];
