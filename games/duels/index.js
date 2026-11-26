@@ -78,7 +78,7 @@ module.exports = function attachDuels(io) {
             gauntlet: room.gauntlet,
             games: catalog(),
             serverNow: Date.now(),
-            notice: room.notice && Date.now() - room.notice.at < 8000 ? room.notice.text : null,
+            notice: room.notice && room.notice.seat !== seat && Date.now() - room.notice.at < 8000 ? room.notice.text : null,
         };
     }
 
@@ -252,7 +252,7 @@ module.exports = function attachDuels(io) {
         socket.on("duel:menu", safe(() => {
             if (!mine()) return;
             // leaving mid-game just cancels it; nobody's record changes
-            room.notice = room.match && !room.match.result ? { text: room.seats[seat].name + " left the game.", at: Date.now() } : null;
+            room.notice = room.match && !room.match.result ? { text: room.seats[seat].name + " left the game.", at: Date.now(), seat } : null;
             clearTimers(room);
             room.match = null;
             room.gauntlet = null;
