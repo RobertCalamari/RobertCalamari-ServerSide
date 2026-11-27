@@ -1,5 +1,6 @@
-// Both players throw at the SAME spinning log. Its angle is a pure function of time,
-// so phones draw the same rotation and the server judges each throw at the moment it lands.
+// Both players throw at the SAME spinning log from opposite sides: seat 0 from below, seat 1 from above.
+// Its angle is a pure function of time, so phones draw the same rotation and the server judges each throw at the moment it lands.
+// Knife angles are log-relative (canvas convention, y down): seat 0 lands at PI/2 - rot, seat 1 at -PI/2 - rot.
 const LOGS = 5;
 const GAP = 0.2; // radians: closer than this to another knife = bounce off
 const FLIGHT = 110; // ms from tap to impact
@@ -13,6 +14,7 @@ const QUOTAS = [10, 12, 14, 14, 16];
 const OBSTACLES = [0, 1, 2, 3, 4];
 const PATTERNS = ["steady", "wobble", "reverse", "surge"];
 const TAU = Math.PI * 2;
+const SIDE = [Math.PI / 2, -Math.PI / 2]; // where each seat's knife meets the log
 
 // rotation (radians) t seconds after the log starts; same formula on the client
 function angle(log, t) {
@@ -134,6 +136,17 @@ module.exports = {
             hitCost: HIT_COST,
         };
     },
+    tv(state) {
+        const log = state.logs[state.logIndex];
+        const placed = state.stuck.filter((k) => k.owner !== null).length;
+        return {
+            headline: "Log " + (state.logIndex + 1) + "/" + state.logs.length + " · " + placed + "/" + log.quota + " knives",
+            sub: "One throws from below, one from above",
+            endAt: state.phase === "play" ? state.logEndsAt : null,
+            scores: state.scores,
+            status: [0, 1].map((s) => (state.phase === "play" && state.out[s] ? "OUT" : (s === 0 ? "from below" : "from above"))),
+        };
+    },
     move(state, seat, p, ctx) {
         if (state.phase !== "play") return { error: "Wait for the next log." };
         if (!p || typeof p !== "object") return { error: "Bad throw." };
@@ -148,7 +161,7 @@ module.exports = {
         state.lastThrow[seat] = at;
         const log = state.logs[state.logIndex];
         const rot = angle(log, (at + FLIGHT - state.logStartAt) / 1000);
-        const a = Math.round(norm(Math.PI / 2 - rot) * 10000) / 10000;
+        const a = Math.round(norm(SIDE[seat] - rot) * 10000) / 10000;
         const hit = state.stuck.some((k) => gapOf(k.a, a) < GAP);
         const id = state.nextId++;
         const n = Number.isInteger(p.n) ? p.n : null;

@@ -1,6 +1,10 @@
-// Digit Target: four digits and a target number. Build a sum that hits it with + − × ÷ and brackets, using each digit
+// Digit Target: four digits and a target number. Build a sum that hits it with + − × ÷ ! and brackets, using each digit
 // at most once; digits next to each other join up (4 then 5 = 45). Five rounds of 60 seconds. Exact = 10 (first exact
 // +2), within 1 = 7, within 5 = 5, within 10 = 2. Your closest try counts. One way to hit it is shown after each round.
+// No hints while playing: nobody sees what a sum comes to (or how close it is) until the round is over.
+// ! is a postfix factorial of a whole number 0..10 (a number or a bracket); 3!! is (3!)! = 720, 4!! is too big.
+// Targets are always reachable without !. options.timer = false (casual): no clock; a round ends once everyone has hit
+// it or given up, or the host skips it.
 const { ranked, seats } = require("../rank");
 const ROUNDS = 5;
 const READY_MS = 3000;
@@ -25,6 +29,9 @@ function calc(a, op, b) {
 }
 
 // every value reachable from the digits in each subset (bitmask) → { key: { v: [n, d], e: text, p: precedence } }
+const FACT = [1, 1, 2, 6, 24, 120, 720, 5040, 40320, 362880, 3628800];
+const BIG = 1e15;
+
 function solve(digits) {
     const memo = {};
     const add = (out, v, e, p) => {
@@ -81,10 +88,11 @@ function makeRound(rng, i) {
         const best = solve(digits);
         // skip targets you can just read off the tiles
         const plain = new Set();
-        for (const a of digits) {
-            plain.add(a);
-            for (const b of digits) plain.add(a * 10 + b);
-        }
+        const read = (n, used) => {
+            plain.add(n);
+            digits.forEach((d, j) => { if (!used.includes(j) && n < 1000) read(n * 10 + d, used.concat(j)); });
+        };
+        digits.forEach((d, j) => read(d, [j]));
         const ok = Object.keys(best).map(Number).filter((t) => t >= lo && t <= hi && !plain.has(t));
         if (ok.length < 3) continue;
         const target = ok[Math.floor(rng() * ok.length)];
@@ -104,14 +112,28 @@ function evaluate(tokens, digits) {
             if (i >= digits.length) return { error: "Bad sum." };
             if (used.has(i)) return { error: "Each digit once." };
             used.add(i);
-        } else if (!["+", "-", "*", "/", "(", ")"].includes(t)) return { error: "Bad sum." };
+        } else if (!["+", "-", "*", "/", "(", ")", "!"].includes(t)) return { error: "Bad sum." };
     }
     let at = 0;
     const peek = () => tokens[at];
     const fail = (msg) => {
         throw new Error(msg);
     };
+    const check = (v) => {
+        if (!v) fail("Can't divide by zero.");
+        if (Math.abs(v[0]) > BIG || v[1] > BIG) fail("That's too big.");
+        return v;
+    };
     function atom() {
+        let v = base();
+        while (peek() === "!") {
+            at++;
+            if (v[1] !== 1 || v[0] < 0 || v[0] > 10) fail("! only works on whole numbers 0 to 10.");
+            v = [FACT[v[0]], 1];
+        }
+        return v;
+    }
+    function base() {
         const t = peek();
         if (t === "(") {
             at++;
@@ -132,9 +154,7 @@ function evaluate(tokens, digits) {
         let v = atom();
         while (peek() === "*" || peek() === "/") {
             const op = tokens[at++];
-            const b = atom();
-            v = calc(v, op, b);
-            if (!v) fail("Can't divide by zero.");
+            v = check(calc(v, op, atom()));
         }
         return v;
     }
@@ -142,7 +162,7 @@ function evaluate(tokens, digits) {
         let v = term();
         while (peek() === "+" || peek() === "-") {
             const op = tokens[at++];
-            v = calc(v, op, term());
+            v = check(calc(v, op, term()));
         }
         return v;
     }
@@ -161,11 +181,17 @@ const worth = (d) => (d === 0 ? 10 : d <= 1 ? 7 : d <= 5 ? 5 : d <= 10 ? 2 : 0);
 function ask(state, ctx) {
     state.phase = "ask";
     state.best = state.score.map(() => null);
+    state.last = state.score.map(() => null);
+    state.tries = state.score.map(() => 0);
+    state.out = state.score.map(() => false);
     state.first = null;
+    if (!state.timed) return (state.deadline = null);
     state.deadline = ctx.now() + ASK_MS;
     const i = state.index;
     ctx.later(ASK_MS, () => state.index === i && state.phase === "ask" && reveal(state, ctx));
 }
+
+const allDone = (state) => state.best.every((b, s) => (b && b.gap === 0) || state.out[s]);
 
 function reveal(state, ctx) {
     state.phase = "reveal";
@@ -190,12 +216,14 @@ function pub(state) {
         phase: state.phase,
         index: state.index,
         total: ROUNDS,
+        timed: state.timed,
         deadline: state.deadline,
         digits: state.phase === "ready" ? null : r.digits,
         target: state.phase === "ready" ? null : r.target,
         score: state.score,
         in: state.best.map((b) => !!b),
         exact: state.best.map((b) => !!b && b.gap === 0),
+        out: state.out,
         first: state.first,
         how: shown ? r.how : null,
         tries: shown ? state.best.map((b) => b && { e: b.e, v: b.v }) : null,
@@ -211,15 +239,19 @@ module.exports = {
     players: [1, 10],
     solve,
     evaluate,
-    init({ rng, ctx, players = 2 }) {
+    options: { timer: [true, false] },
+    init({ rng, ctx, options = {}, players = 2 }) {
         const rounds = seats(ROUNDS).map((i) => makeRound(rng, i));
-        const state = { rounds, index: 0, phase: "ready", best: new Array(players).fill(null), first: null, got: null, score: new Array(players).fill(0), deadline: ctx.now() + READY_MS };
+        const none = () => new Array(players).fill(null);
+        const state = { rounds, index: 0, phase: "ready", timed: options.timer !== false, best: none(), last: none(), tries: new Array(players).fill(0), out: new Array(players).fill(false), first: null, got: null, score: new Array(players).fill(0), deadline: ctx.now() + READY_MS };
         ctx.later(READY_MS, () => ask(state, ctx));
         return state;
     },
     view(state, seat) {
         const v = pub(state);
-        v.mine = state.best[seat];
+        // while playing only your last sum and whether it was exact; values and gaps wait for the reveal
+        const b = state.best[seat];
+        v.mine = { e: state.last[seat], tries: state.tries[seat], exact: !!b && b.gap === 0, out: state.out[seat] };
         return v;
     },
     tv(state) {
@@ -228,16 +260,30 @@ module.exports = {
     move(state, seat, p, ctx) {
         if (!p || typeof p !== "object" || p.q !== state.index) return { error: "Bad move." };
         if (state.phase !== "ask") return { error: "Round's over." };
+        if (p.act === "skip") {
+            if (state.timed || !ctx.host) return { error: "Only the host can skip." };
+            reveal(state, ctx);
+            return { ok: true };
+        }
+        if (p.act === "out") {
+            if (state.timed) return { error: "Bad move." };
+            state.out[seat] = true;
+            if (allDone(state)) reveal(state, ctx);
+            return { ok: true };
+        }
+        if (state.out[seat]) return { error: "You gave this one up." };
         const r = state.rounds[state.index];
         const res = evaluate(p.tokens, r.digits);
         if (res.error) return { error: res.error };
         const g = gap(res.v, r.target);
         const prev = state.best[seat];
         if (prev && prev.gap === 0) return { error: "You already hit it!" };
-        const e = p.tokens.map((t) => (t[0] === "d" ? r.digits[Number(t.slice(1))] : SHOW[t] || t)).join(" ").replace(/(\d) (?=\d)/g, "$1").replace(/\( /g, "(").replace(/ \)/g, ")");
+        const e = p.tokens.map((t) => (t[0] === "d" ? r.digits[Number(t.slice(1))] : SHOW[t] || t)).join(" ").replace(/(\d) (?=\d)/g, "$1").replace(/\( /g, "(").replace(/ ([)!])/g, "$1");
+        state.last[seat] = e;
+        state.tries[seat]++;
         if (!prev || g < prev.gap) state.best[seat] = { e, v: res.v, gap: Math.round(g * 1000) / 1000 };
         if (g === 0 && state.first === null) state.first = seat;
-        if (state.best.every((b) => b && b.gap === 0)) reveal(state, ctx);
+        if (allDone(state)) reveal(state, ctx);
         return { ok: true };
     },
     result(state) {
@@ -245,7 +291,7 @@ module.exports = {
         const top = Math.max(...state.score);
         const solo = state.score.length === 1;
         const r = ranked(state.score, "high", solo ? state.score[0] + " points from " + ROUNDS + " targets" : "Top score " + top + " from " + ROUNDS + " targets");
-        if (solo) r.score = state.score[0];
+        if (solo && state.timed) r.score = state.score[0];
         return r;
     },
 };

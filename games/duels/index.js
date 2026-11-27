@@ -33,7 +33,7 @@ const range = (g) => (Array.isArray(g.players) ? g.players : [2, 2]);
 const fits = (g, n) => n >= range(g)[0] && n <= range(g)[1];
 
 function catalog() {
-    return Object.values(GAMES).map((g) => ({ id: g.id, name: g.name, quick: !!g.quick, kind: g.kind, players: range(g) }));
+    return Object.values(GAMES).map((g) => ({ id: g.id, name: g.name, quick: !!g.quick, kind: g.kind, players: range(g), options: g.options || null }));
 }
 
 function newRoom(code, group) {
@@ -182,15 +182,23 @@ module.exports = function attachDuels(io) {
         };
     }
 
-    function startMatch(room, gameId, options) {
+    // only options the game declares (options: { key: [default, ...allowed] }) reach init
+    function pickOptions(g, given) {
+        const out = {};
+        for (const [k, allowed] of Object.entries(g.options || {})) out[k] = given && allowed.includes(given[k]) ? given[k] : allowed[0];
+        return out;
+    }
+
+    function startMatch(room, gameId, given) {
         const g = GAMES[gameId];
+        const options = g && g.options ? pickOptions(g, given) : given || {};
         const players = active(room);
         if (!g || !fits(g, players.length)) return false;
         clearTimers(room);
         const seed = Math.floor(Math.random() * 2 ** 31);
         const no = ++room.matchNo;
-        room.match = { no, game: gameId, players, seed, rng: mulberry32(seed), state: null, result: null, startedAt: Date.now() };
-        room.match.state = g.init({ seed, rng: room.match.rng, options: options || {}, ctx: ctxFor(room, no), players: players.length });
+        room.match = { no, game: gameId, players, seed, rng: mulberry32(seed), state: null, result: null, startedAt: Date.now(), options };
+        room.match.state = g.init({ seed, rng: room.match.rng, options, ctx: ctxFor(room, no), players: players.length });
         check(room);
         return true;
     }
@@ -355,7 +363,7 @@ module.exports = function attachDuels(io) {
 
         socket.on("duel:rematch", safe(() => {
             if (!picker() || !room.match || !room.match.result || room.gauntlet) return;
-            if (startMatch(room, room.match.game)) {
+            if (startMatch(room, room.match.game, room.match.options)) {
                 touch();
                 broadcast(room);
             }
@@ -404,7 +412,7 @@ module.exports = function attachDuels(io) {
             const g = GAMES[m.game];
             let res;
             try {
-                res = g.move(m.state, me, data || {}, ctxFor(room, m.no)) || { ok: true };
+                res = g.move(m.state, me, data || {}, { ...ctxFor(room, m.no), host: picker() }) || { ok: true };
             } catch (e) {
                 console.log("[DUELS move error]", m.game, e);
                 res = { error: "That move didn't work." };

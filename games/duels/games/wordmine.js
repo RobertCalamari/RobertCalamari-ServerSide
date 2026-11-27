@@ -1,6 +1,7 @@
 // Word Mine: one long word's letters, 90 seconds. Everyone digs out as many real words (3+ letters) as they can,
 // using each letter only as often as it appears. Longer words score more, using every letter scores big, and in a
-// group a word nobody else found is worth +1. Words stay private until the end.
+// group a word nobody else found is worth +1. Words stay private until the end, and so does how many there are to find.
+// options.timer = false (casual): no clock; it ends once everyone says they're done (or the host ends it).
 const { ranked, seats } = require("../rank");
 const { TOP, VALID, count, fits, inside } = require("../words");
 const READY_MS = 3000;
@@ -56,14 +57,16 @@ module.exports = {
     quick: true,
     players: [1, 10],
     points,
-    init({ rng, ctx, players = 2 }) {
+    options: { timer: [true, false] },
+    init({ rng, ctx, options = {}, players = 2 }) {
         const { word, all } = pickWord(rng);
         const now = ctx.now();
         let letters = shuffle(rng, word.split(""));
         if (letters.join("") === word) letters = letters.reverse();
-        const state = { word, all, letters, phase: "ready", startAt: now + READY_MS, endAt: now + READY_MS + PLAY_MS, found: seats(players).map(() => []), quit: new Array(players).fill(false), lists: null, final: null, missed: null };
+        const timed = options.timer !== false;
+        const state = { word, all, letters, phase: "ready", timed, startAt: now + READY_MS, endAt: timed ? now + READY_MS + PLAY_MS : null, found: seats(players).map(() => []), quit: new Array(players).fill(false), lists: null, final: null, missed: null };
         ctx.later(READY_MS, () => (state.phase = "play"));
-        ctx.later(READY_MS + PLAY_MS, () => state.phase === "play" && tally(state));
+        if (timed) ctx.later(READY_MS + PLAY_MS, () => state.phase === "play" && tally(state));
         return state;
     },
     view(state, seat) {
@@ -75,11 +78,12 @@ module.exports = {
         const done = state.phase === "done";
         return {
             phase: state.phase,
+            timed: state.timed,
             startAt: state.startAt,
             endAt: state.endAt,
             letters: state.phase === "ready" ? null : state.letters.map((c) => c.toUpperCase()),
             len: state.word.length,
-            possible: state.all.length,
+            possible: done ? state.all.length : null,
             counts: state.found.map((l) => l.length),
             scores: done ? state.final : state.found.map((_, s) => score(state, s)),
             quit: state.quit,
@@ -88,9 +92,14 @@ module.exports = {
             missed: done ? state.missed : null,
         };
     },
-    move(state, seat, p) {
+    move(state, seat, p, ctx) {
         if (state.phase !== "play") return { error: state.phase === "ready" ? "Not yet!" : "Time's up." };
         if (!p || typeof p !== "object") return { error: "Bad move." };
+        if (p.act === "end") {
+            if (state.timed || !ctx.host) return { error: "Only the host can end it." };
+            tally(state);
+            return { ok: true };
+        }
         if (p.act === "stop") {
             state.quit[seat] = true;
             if (state.quit.every(Boolean)) tally(state);
@@ -112,7 +121,7 @@ module.exports = {
         const top = Math.max(...state.final);
         const words = state.found.reduce((t, l) => Math.max(t, l.length), 0);
         const r = ranked(state.final, "high", state.found.length === 1 ? state.final[0] + " points · " + words + " words" : "Top score " + top + " · most words " + words);
-        if (state.found.length === 1) r.score = state.final[0];
+        if (state.found.length === 1 && state.timed) r.score = state.final[0];
         return r;
     },
 };

@@ -18,6 +18,7 @@ module.exports = {
   kind: "turn",             // "turn" | "race" | "sim" | "live" (informational)
   quick: true,              // quick games (under ~2 minutes) can be picked for a gauntlet
   players: [2, 2],          // [min, max] game seats supported. Omitted = [2, 2]. Any max up to 16 is fine.
+  options: { timer: [true, false] }, // optional: start options, first value is the default (see below)
   init({ seed, rng, options, ctx, players }) { return state },  // players = n (number of game seats). Default it: players = 2
   view(state, seat) { return {...} },       // what game seat `seat` (0..n-1) may see (hide secrets!). JSON only.
   move(state, seat, payload, ctx) { return { ok: true } | { ok: true, quiet: true } | { error: "message" } },
@@ -36,6 +37,10 @@ module.exports = {
   For one player, `result` may add `score` (a number); the client keeps it as a personal best.
 - The room turns game seats back into room seats: session wins, gauntlet score and the `places` the client gets are per room seat.
 - `{ ok: true, quiet: true }` from `move` skips the broadcast (use for no-op updates).
+- Start options: the host may send `duel:start { game, options }`. Only keys the game declares in `options` reach
+  `init({ options })`, each one of its listed values (anything else gets the default). Rematch keeps them; gauntlets use
+  defaults. Game Night shows a "⏱ Timer" toggle for games that declare `timer`.
+- In `move`, `ctx.host` is true when the mover is the room host (either player in a duel).
 - `ctx.later(ms, fn)` runs `fn(now)` later; afterwards the room re-checks `result` and broadcasts. Timers of a finished or
   cancelled match are dropped. `ctx.now()` = `Date.now()`. `ctx.rng()` = seeded `[0,1)`.
 - Never trust the payload: validate types, ranges and whose turn it is. Return `{ error }` for bad moves.
