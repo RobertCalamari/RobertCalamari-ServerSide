@@ -134,6 +134,7 @@ module.exports = function attachDuels(io) {
             m.players.forEach((s, i) => (places[s] = pl[i]));
         }
         m.result = { winner: w, places, text: String(result.text || "").slice(0, 140) };
+        if (n === 1 && Number.isFinite(result.score)) m.result.score = result.score;
         if (w === null) room.stats.draws++;
         else room.stats.wins[w]++;
         room.stats.played.push({ game: m.game, winner: w });
@@ -223,7 +224,8 @@ module.exports = function attachDuels(io) {
         const mine = () => room && seat !== null && room.seats[seat] && room.seats[seat].socketId === socket.id;
         // duels: either player; group rooms: only the host picks
         const picker = () => mine() && (!room.group || room.host === seat);
-        const ready = () => (room.group ? active(room).length >= 2 : !!(room.seats[0] && room.seats[1]));
+        // a group can start a one-player game on its own; gauntlets still need two
+        const ready = (min = 2) => (room.group ? active(room).length >= min : !!(room.seats[0] && room.seats[1]));
 
         function sit(r, s, name, key) {
             r.seats[s] = { key: key || makeKey(), name, socketId: socket.id, connected: true };
@@ -308,7 +310,7 @@ module.exports = function attachDuels(io) {
         }));
 
         socket.on("duel:start", safe((data) => {
-            if (!picker() || !ready()) return;
+            if (!picker() || !ready(1)) return;
             if (room.match && !room.match.result) return;
             const id = String((data && data.game) || "");
             if (!GAMES[id]) return;
