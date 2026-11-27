@@ -7,6 +7,7 @@
 const { ranked, seats } = require("../rank");
 const M = require("../cardshop/market");
 const { KINDS, makeCustomer, visit, itemOf, ask } = require("../cardshop/crowd");
+const X = require("../cardshop/extras");
 const { D, CARDS, idxOf, isFoil, r2, shuffle, openPack, value, initMarket, makeNews, forecast, overnight } = M;
 const { SETS, TYPES, RARITIES, FOIL } = D;
 
@@ -37,7 +38,11 @@ const CFG = {
     ms: { buy: 60000, buy1: 80000, setup: 45000, setup1: 60000, sell: 45000, lastIn: 9000, report: 12000, offer: 8000, counter: 4000, tick: 1000 },
     counters: 2, // haggle rounds you get per customer
     queue: 3, // customers waiting at one booth before others give up
-    job: { pay: 25, items: 10, ms: 15000 }, // the odd job: sort cards into bins by type, once a day when broke
+    actions: { base: 2, max: 5, carry: 1, packs: 3 }, // actions per day; unused carry over (up to carry); one action buys up to `packs` packs
+    fish: { ms: 15000, minMs: 3000, pack: 70, boot: 22, golden: 8, bootCash: 5 }, // broke? go fishing once a day: catch odds
+    challenge: { prize: 20, sales: 25 }, // daily challenge prize; the "sell $X" target is sales x priceScale
+    vip: { at: 4000, mult: 2, min: 12, max: 60, cardP: 0.5 }, // the VIP arrives 4s into Doors open; bounty = mult x cheapest qualifying market, between min and max (x priceScale)
+    streak: { cash: 0.8, maxAppeal: 3, actionAt: 3 }, // per deal at full sticker: bonus = cash x priceScale x (streak-1)
     up: {
         lights: { name: "String lights", icon: "💡", cost: 40, appeal: 1, tip: "+1 appeal" },
         banner: { name: "Booth banner", icon: "🚩", cost: 70, appeal: 2, tip: "+2 appeal" },
@@ -47,6 +52,7 @@ const CFG = {
         lic: { name: "Buy-in license", icon: "🤝", cost: [100, 150], pct: [70, 60], tip: "Customers offer you their cards at 70% of market (60% upgraded)" },
         gun: { name: "Price gun", icon: "🔫", cost: 50, tip: "Scan one set: see where its prices go tonight" },
         bulk: { name: "Bulk bin", icon: "🗑️", cost: 30, tip: "Commons and uncommons you aren't showing sell for 50% each day" },
+        helper: { name: "Hire a helper", icon: "🧑‍🔧", cost: [80, 160], tip: "+1 action every day" },
     },
     bulkPct: 50,
     bigPull: 40, // public announcement threshold ($)
@@ -61,7 +67,8 @@ function activeSets() {
     return [...new Set([0, 1, 2, 3, 4, 5].map((j) => by[Math.round((j * (by.length - 1)) / 5)]))];
 }
 
-const appeal = (state, s) => DECOR.reduce((t, k) => t + (state.up[s][k] ? CFG.up[k].appeal : 0), 0);
+const decor = (state, s) => DECOR.reduce((t, k) => t + (state.up[s][k] ? CFG.up[k].appeal : 0), 0);
+const appeal = (state, s) => decor(state, s) + X.streakAppeal(state, s, CFG);
 const shown = (state, s, f) => state.disp[s].filter((d) => d && f(d)).length;
 const shownKey = (state, s, k) => shown(state, s, (d) => d.k === k);
 const shownPack = (state, s, p) => shown(state, s, (d) => d.p === p);
@@ -134,7 +141,8 @@ function startDay(state, ctx) {
             return { k: key, price: r2(value(state, key) * CFG.singlesMarkup), sold: -1 };
         })
         .sort((a, b) => a.price - b.price);
-    state.today = state.cash.map(() => ({ rev: 0, sold: 0, spent: 0, best: null, buyins: 0, bulk: 0 }));
+    state.today = state.cash.map(() => ({ rev: 0, sold: 0, spent: 0, best: null, buyins: 0, bulk: 0, streakCash: 0 }));
+    X.newDay(state, rng, CFG);
     state.ripped = SETS.map(() => 0);
     state.q = state.cash.map(() => []);
     state.walkers = [];
@@ -169,6 +177,7 @@ function startSell(state, ctx) {
     state.crowd = { list: crowd, i: 0, start: ctx.now() };
     state.q = state.cash.map(() => []);
     phase(state, ctx, "sell", CFG.ms.sell);
+    ctx.later(CFG.vip.at, () => X.vipVisit(state, ctx, sellTo, bubble, feed));
     const tick = () => {
         if (state.phase !== "sell") return;
         serveDue(state, ctx);
@@ -202,6 +211,7 @@ function serveDue(state, ctx) {
     state.q.forEach((q, s) => {
         if (q[0] && q[0].until < now) {
             bubble(state, s, q[0].ty, "Walked away", "walk");
+            if (q[0].kind !== "sell") X.onWalk(state, s);
             nextOffer(state, s, now);
         }
     });
@@ -227,7 +237,7 @@ function haggle(state, cu, pk, ctx) {
     const s = pk.seat;
     const d = state.disp[s][pk.slot];
     if (pk.list <= pk.w && pk.list <= cu.budget && rng() < K.payP) {
-        sellTo(state, s, pk.slot, pk.list, null, cu.ty);
+        sellTo(state, s, pk.slot, pk.list, null, cu.ty, { how: "paid" });
         bubble(state, s, cu.ty, "Paid " + money(pk.list) + "!", "deal");
         return;
     }
@@ -260,7 +270,7 @@ function haggle(state, cu, pk, ctx) {
     bubble(state, s, cu.ty, o.kind === "trade" ? "Trade you?" : "Offered " + money(cash) + "!", "offer");
 }
 
-function sellTo(state, s, slot, cash, give, ty) {
+function sellTo(state, s, slot, cash, give, ty, deal) {
     const d = state.disp[s][slot];
     const it = itemOf(state, d);
     const total = r2(cash + (give ? give.v : 0));
@@ -287,6 +297,9 @@ function sellTo(state, s, slot, cash, give, ty) {
     if (!st.flip || flip > st.flip.profit) st.flip = { k: d.k, p: d.p, profit: r2(flip), price: total };
     state.sold.push({ seat: s, slot, day: state.day });
     feed(state, { kind: give ? "swap" : "sold", seat: s, k: d.k, p: d.p, price: total, paid: cash, give: give ? give.k : undefined, m: r2(it.m), ty });
+    const list = ask(it.m, d.pct);
+    const bonus = X.onDeal(state, s, { r: d.k !== undefined ? CARDS[idxOf(d.k)].r : -1, full: total >= list - 0.01, how: "accept", ty, trade: !!give, ...deal }, CFG, feed);
+    if (bonus) bubble(state, s, ty, "🔥×" + state.streak[s] + " +" + money(bonus), "streak");
 }
 
 function offerFrom(state, cu, path, ctx) {
@@ -331,7 +344,7 @@ function counter(state, s, o, i, ctx) {
     const yes = fits && rng() < K.yes * (1 - push * K.push) + (c.id === "half" ? K.half : 0);
     if (yes) {
         o.cash = r2(c.amt - o.giveV);
-        sellTo(state, s, o.slot, o.cash, o.kind === "trade" ? { k: o.give, v: o.giveV } : null, o.ty);
+        sellTo(state, s, o.slot, o.cash, o.kind === "trade" ? { k: o.give, v: o.giveV } : null, o.ty, { how: "counter" });
         bubble(state, s, o.ty, "Deal at " + money(c.amt) + "!", "deal");
         nextOffer(state, s, now);
         return { ok: true };
@@ -339,6 +352,7 @@ function counter(state, s, o, i, ctx) {
     const back = r2(Math.min(o.w, t + (c.amt - t) * K.meet * (0.7 + rng() * 0.6)));
     if (rng() < K.walk + push * 0.35 || back <= t + 0.01 || o.rounds > CFG.counters) {
         bubble(state, s, o.ty, "Walked away", "walk");
+        X.onWalk(state, s);
         nextOffer(state, s, now);
         return { ok: true };
     }
@@ -357,6 +371,7 @@ function answer(state, s, p, ctx) {
     if (state.phase !== "sell" || !o || o.id !== p.id) return { error: "That customer is gone." };
     if (o.until < now) {
         bubble(state, s, o.ty, "Walked away", "walk");
+        if (o.kind !== "sell") X.onWalk(state, s);
         nextOffer(state, s, now);
         return { error: "Too slow, they walked off." };
     }
@@ -372,6 +387,7 @@ function answer(state, s, p, ctx) {
             return { ok: true };
         }
         bubble(state, s, o.ty, "Walked away", "walk");
+        if (o.kind !== "sell") X.onWalk(state, s);
         nextOffer(state, s, now);
         return { ok: true };
     }
@@ -417,6 +433,7 @@ function endSell(state, ctx) {
         state.today[s].rev = r2(state.today[s].rev + total);
         feed(state, { kind: "bulk", seat: s, n: q, price: total });
     });
+    state.highlights = X.closeDay(state, feed, (s) => appeal(state, s));
     report(state, ctx);
 }
 
@@ -445,7 +462,7 @@ function report(state, ctx) {
         .map((x) => ({ k: x.i * 2, a: x.a, b: x.b }));
     const packs = SETS.map((s, p) => ({ p, a: pb[p], b: state.pack[p] })).filter((x) => x.a !== x.b);
     state.cash.forEach((_, s) => state.worthHist[s].push(worth(state, s)));
-    state.report = { day: state.day, movers, packMoves: packs, today: state.today.map((t) => ({ rev: t.rev, sold: t.sold, best: t.best })), last };
+    state.report = { day: state.day, movers, packMoves: packs, today: state.today.map((t) => ({ rev: t.rev, sold: t.sold, best: t.best })), last, highlights: state.highlights || [] };
     phase(state, ctx, "report", CFG.ms.report);
 }
 
@@ -460,8 +477,8 @@ function awards(state) {
     if (f && f.profit > 0) out.push({ id: "flip", icon: "🔁", name: "Best flip", seat: fl, k: f.k, p: f.p, text: "+$" + f.profit.toFixed(2) + " profit" });
     const ts = best((s) => state.stats[s].rev);
     if (state.stats[ts].rev > 0) out.push({ id: "seller", icon: "🏆", name: "Top seller", seat: ts, text: "$" + state.stats[ts].rev.toFixed(2) + " in sales" });
-    const fb = best((s) => appeal(state, s) * 1000 + state.stats[s].decor);
-    if (appeal(state, fb) > 0) out.push({ id: "booth", icon: "✨", name: "Fanciest booth", seat: fb, text: appeal(state, fb) + " appeal" });
+    const fb = best((s) => decor(state, s) * 1000 + state.stats[s].decor);
+    if (decor(state, fb) > 0) out.push({ id: "booth", icon: "✨", name: "Fanciest booth", seat: fb, text: decor(state, fb) + " appeal" });
     const mm = best((s) => state.stats[s].mm);
     if (state.stats[mm].mm > 0) out.push({ id: "maker", icon: "🤝", name: "Market maker", seat: mm, text: state.stats[mm].mm + " player trades" });
     return out;
@@ -481,6 +498,7 @@ function pub(state, refs) {
     const booths = seats(n).map((s) => ({
         appeal: appeal(state, s),
         decor: DECOR.filter((k) => state.up[s][k]),
+        helper: state.up[s].helper,
         slots: state.slots[s],
         lic: state.up[s].lic,
         items: setup ? null : state.disp[s].map((d) => {
@@ -502,6 +520,10 @@ function pub(state, refs) {
     const aw = done ? awards(state) : null;
     if (aw) aw.forEach((a) => add(a.k));
     const news = state.news[state.day];
+    const w = state.wanted;
+    if (w.kind === "card") refs.add(w.i);
+    if (w.k !== undefined) add(w.k);
+    (state.highlights || []).forEach((h) => add(h.k));
     return {
         phase: state.phase,
         day: state.day,
@@ -527,7 +549,11 @@ function pub(state, refs) {
         report: rep,
         worthHist: state.worthHist,
         awards: aw,
-        cfg: { pcts: CFG.pcts, maxSlots: CFG.maxSlots, packSize: CFG.packSize, bulkPct: CFG.bulkPct, markup: CFG.singlesMarkup, offerMs: CFG.ms.offer, job: CFG.job },
+        challenge: { id: state.chal.id, text: state.chal.text, prize: state.chal.prize, need: state.chal.need, done: state.chal.done },
+        wanted: { kind: w.kind, k: w.kind === "card" ? w.i * 2 : undefined, s: w.s, t: w.t, text: w.text, bounty: w.bounty, claimed: w.claimed, got: w.k },
+        streak: state.streak,
+        acts: state.actsUsed,
+        cfg: { pcts: CFG.pcts, maxSlots: CFG.maxSlots, packSize: CFG.packSize, bulkPct: CFG.bulkPct, markup: CFG.singlesMarkup, offerMs: CFG.ms.offer, fish: CFG.fish, packsPerAction: CFG.actions.packs, vipAt: CFG.vip.at },
     };
 }
 
@@ -549,6 +575,7 @@ function upCost(state, s, key) {
     const u = state.up[s];
     if (key === "slot") return state.slots[s] >= CFG.maxSlots ? null : CFG.slotCost[state.slots[s] - CFG.slots];
     if (key === "lic") return u.lic >= CFG.up.lic.cost.length ? null : CFG.up.lic.cost[u.lic];
+    if (key === "helper") return u.helper >= CFG.up.helper.cost.length ? null : CFG.up.helper.cost[u.helper];
     if (key === "gun") return CFG.up.gun.cost;
     if (!CFG.up[key]) return null;
     return u[key] ? null : CFG.up[key].cost;
@@ -565,6 +592,7 @@ function rip(state, s, p, ctx) {
     keys.forEach((k) => addCard(state, s, k, r2(cost / keys.length)));
     state.ripped[p]++;
     state.stats[s].ripped++;
+    X.onRip(state, s, p, feed);
     const no = ++state.ripNo;
     state.rips[s].push({ no, p, keys, vals, cost });
     if (state.rips[s].length > 4) state.rips[s].shift();
@@ -580,28 +608,6 @@ function rip(state, s, p, ctx) {
 
 const cheapest = (state) => Math.min(...state.stock.map((x) => state.pack[x.p]));
 
-function oddJob(state, s, p, ctx) {
-    const j = state.jobs[s];
-    if (p.start) {
-        if (state.phase !== "buy") return { error: "Odd jobs are a morning thing." };
-        if (j && j.day === state.day) return { error: "One odd job a day." };
-        if (state.cash[s] >= cheapest(state)) return { error: "You can still afford a pack." };
-        const bins = shuffle(ctx.rng, seats(TYPES.length)).slice(0, 3);
-        state.jobs[s] = { day: state.day, start: ctx.now(), bins, items: Array.from({ length: CFG.job.items }, () => M.pick(ctx.rng, bins)), done: false, paid: 0 };
-        return { ok: true };
-    }
-    if (!j || j.day !== state.day || j.done) return { error: "No odd job running." };
-    const ans = p.answers;
-    if (!Array.isArray(ans) || ans.length > j.items.length) return { error: "Bad answers." };
-    const late = ctx.now() - j.start > CFG.job.ms + 4000;
-    const right = j.items.filter((t, i) => ans[i] === t).length;
-    j.done = true;
-    j.right = right;
-    j.paid = late ? 0 : r2((CFG.job.pay * right) / j.items.length);
-    state.cash[s] = r2(state.cash[s] + j.paid);
-    return { ok: true };
-}
-
 function move(state, s, p, ctx) {
     if (!p || typeof p !== "object") return { error: "Bad move." };
     const ph = state.phase;
@@ -615,25 +621,31 @@ function move(state, s, p, ctx) {
     }
     if (p.act === "rip") return rip(state, s, p.p, ctx);
     if (p.act === "offer") return answer(state, s, p, ctx);
-    if (p.act === "job") return oddJob(state, s, p, ctx);
+    if (p.act === "fish") return X.fish(state, s, p, ctx, CFG, cheapest(state), feed);
     if (!shop) return { error: ph === "sell" ? "The doors are open, watch your booth!" : "The shop is closed right now." };
     const spend = (x) => {
         pay(state, s, x);
         state.today[s].spent = r2(state.today[s].spent + x);
     };
+    const out = state.acts[s] < 1 ? { error: "Out of actions. Tomorrow you get " + X.tomorrow(state, s, CFG) + "." } : null;
     if (p.act === "pack") {
         if (ph !== "buy") return { error: "The distributor only sells in the morning." };
         const st = state.stock.find((x) => x.p === p.p);
         if (!okSet(p.p) || !st) return { error: "The distributor doesn't carry that today." };
+        const qty = p.n === undefined ? 1 : p.n;
+        if (!Number.isInteger(qty) || qty < 1 || qty > CFG.actions.packs) return { error: "One action buys 1 to " + CFG.actions.packs + " packs." };
         if (st.q < 1) return { error: "Sold out!" };
+        if (st.q < qty) return { error: "Only " + st.q + " left." };
         const price = state.pack[p.p];
-        if (price > state.cash[s]) return { error: "Not enough cash." };
-        spend(price);
-        st.q--;
+        if (price * qty > state.cash[s] + 0.001) return { error: "Not enough cash." };
+        if (out) return out;
+        X.useAction(state, s, CFG);
+        spend(r2(price * qty));
+        st.q -= qty;
         const have = state.packs[s][p.p];
-        state.packBasis[s][p.p] = r2(((state.packBasis[s][p.p] || 0) * have + price) / (have + 1));
-        state.packs[s][p.p]++;
-        state.stats[s].packs++;
+        state.packBasis[s][p.p] = r2(((state.packBasis[s][p.p] || 0) * have + price * qty) / (have + qty));
+        state.packs[s][p.p] += qty;
+        state.stats[s].packs += qty;
         return { ok: true };
     }
     if (p.act === "single") {
@@ -642,6 +654,8 @@ function move(state, s, p, ctx) {
         if (!Number.isInteger(p.i) || !x) return { error: "Pick a card." };
         if (x.sold >= 0) return { error: "Someone already bought that one." };
         if (x.price > state.cash[s]) return { error: "Not enough cash." };
+        if (out) return out;
+        X.useAction(state, s, CFG);
         spend(x.price);
         x.sold = s;
         addCard(state, s, x.k, x.price);
@@ -652,6 +666,8 @@ function move(state, s, p, ctx) {
         if (!okKey(p.k) || !(price >= 0.05 && price <= 100000)) return { error: "Pick a card and a price." };
         if (spareKey(state, s, p.k) < 1) return { error: "You don't have a spare copy of that card." };
         if (state.listings.filter((l) => l.seat === s).length >= CFG.maxListings) return { error: "You can list " + CFG.maxListings + " cards at a time." };
+        if (out) return out;
+        X.useAction(state, s, CFG);
         const b = state.basis[s][p.k] || 0;
         dropCard(state, s, p.k);
         state.listings.push({ id: ++state.eid, seat: s, k: p.k, price: r2(price), basis: b });
@@ -669,6 +685,8 @@ function move(state, s, p, ctx) {
         if (!l) return { error: "Someone beat you to it." };
         if (l.seat === s) return { error: "That's your own listing." };
         if (l.price > state.cash[s]) return { error: "Not enough cash." };
+        if (out) return out;
+        X.useAction(state, s, CFG);
         state.listings = state.listings.filter((x) => x !== l);
         spend(l.price);
         addCard(state, s, l.k, l.price);
@@ -696,10 +714,10 @@ function move(state, s, p, ctx) {
         let d;
         if (p.k !== undefined) {
             if (!okKey(p.k) || spareKey(state, s, p.k) < 1) return (row[i] = old), { error: "You don't have a spare copy of that card." };
-            d = { k: p.k, pct };
+            d = { k: p.k, pct, at: ctx.now() };
         } else if (p.p !== undefined) {
             if (!okSet(p.p) || sparePack(state, s, p.p) < 1) return (row[i] = old), { error: "You don't have a spare sealed pack of that set." };
-            d = { p: p.p, pct };
+            d = { p: p.p, pct, at: ctx.now() };
         } else if (old) d = { ...old, pct };
         else return { error: "Pick something to show." };
         row[i] = d;
@@ -711,12 +729,18 @@ function move(state, s, p, ctx) {
         if (cost === null || cost === undefined) return { error: "You can't buy that." };
         if (key === "gun" && !okSet(p.p)) return { error: "Pick a set to scan." };
         if (cost > state.cash[s]) return { error: "Not enough cash." };
+        if (out) return out;
+        X.useAction(state, s, CFG);
         spend(cost);
         const u = state.up[s];
         if (key === "slot") {
             state.slots[s]++;
             state.disp[s].push(null);
         } else if (key === "lic") u.lic++;
+        else if (key === "helper") {
+            u.helper++;
+            state.acts[s] = Math.min(CFG.actions.max, state.acts[s] + 1);
+        }
         else if (key === "gun") {
             const n = state.day < CFG.days ? state.news[state.day + 1] : null;
             state.hints[s] = state.hints[s].filter((h) => h.day === state.day && h.p !== p.p);
@@ -751,7 +775,7 @@ module.exports = {
             packBasis: seats(n).map(() => ({})),
             slots: new Array(n).fill(CFG.slots),
             disp: seats(n).map(() => new Array(CFG.slots).fill(null)),
-            up: seats(n).map(() => ({ lights: false, banner: false, mat: false, case: false, plush: false, lic: 0, bulk: false })),
+            up: seats(n).map(() => ({ lights: false, banner: false, mat: false, case: false, plush: false, lic: 0, bulk: false, helper: 0 })),
             hints: seats(n).map(() => []),
             rips: seats(n).map(() => []),
             stats: seats(n).map(() => ({ rev: 0, served: 0, flip: null, mm: 0, decor: 0, ripped: 0, packs: 0 })),
@@ -761,7 +785,12 @@ module.exports = {
             sold: [],
             walkers: [],
             q: seats(n).map(() => []),
-            jobs: new Array(n).fill(null),
+            acts: new Array(n).fill(0),
+            actsUsed: new Array(n).fill(0),
+            bonusAct: new Array(n).fill(0),
+            fished: new Array(n).fill(null),
+            streak: new Array(n).fill(0),
+            bestStreak: new Array(n).fill(0),
             bubbles: [],
             stock: [],
             singles: [],
@@ -808,10 +837,14 @@ module.exports = {
             rips: state.rips[seat],
             q,
             waiting: state.q[seat].length,
-            job: state.jobs[seat] && state.jobs[seat].day === state.day ? state.jobs[seat] : null,
-            canJob: state.phase === "buy" && !(state.jobs[seat] && state.jobs[seat].day === state.day) && state.cash[seat] < cheapest(state),
+            fish: state.fished[seat] && state.fished[seat].day === state.day ? state.fished[seat] : null,
+            canFish: state.phase === "buy" && !(state.fished[seat] && state.fished[seat].day === state.day) && state.cash[seat] < cheapest(state),
+            acts: state.acts[seat],
+            actsTomorrow: X.tomorrow(state, seat, CFG),
+            chalProg: state.chal.prog[seat],
+            hasWanted: Object.keys(state.own[seat]).some((k) => X.wants(state.wanted, +k)),
             today: t,
-            costs: Object.fromEntries(["slot", "lic", "gun", ...DECOR, "bulk"].map((k) => [k, upCost(state, seat, k)])),
+            costs: Object.fromEntries(["slot", "lic", "gun", "helper", ...DECOR, "bulk"].map((k) => [k, upCost(state, seat, k)])),
             licPct: state.up[seat].lic ? CFG.up.lic.pct[state.up[seat].lic - 1] : null,
         };
         v.shop = CFG.up;
