@@ -1307,9 +1307,10 @@ function townBot(v, k) {
     const nb = (i) => [i - st.size, i + st.size, i % st.size ? i - 1 : -1, i % st.size < st.size - 1 ? i + 1 : -1].filter((j) => j >= 0 && j < st.cells.length);
     const opts = [];
     const lots = st.cells.map((x, i) => (x ? -1 : i)).filter((i) => i >= 0);
-    for (const p of v.pool) {
+    const placing = v.phase === "place";
+    for (const p of placing ? [v.hands[s]] : v.pool) {
         const d = v.defs[p.t];
-        if (d.cost > st.coins[s]) continue;
+        if (!placing && d.cost > st.coins[s]) continue;
         for (const i of lots) {
             st.cells[i] = { t: p.t, o: s };
             const after = range(n).map((x) => g.score(st, x).total);
@@ -1320,17 +1321,18 @@ function townBot(v, k) {
             const theirs = range(n).filter((x) => x !== s).reduce((t, x) => t + after[x] - before[x], 0);
             // a home next to open lots has room to grow
             const room = d.tags.includes("home") ? nb(i).filter((j) => !st.cells[j]).length * 0.15 : 0;
-            const val = mine - theirs * (k.level === "hard" ? 0.6 : 0.2) + (coins - d.cost) / 3 + room;
+            const val = mine - theirs * (k.level === "hard" ? 0.6 : 0.2) + (coins - (placing ? 0 : d.cost)) / 3 + room;
             opts.push({ p, i, val });
         }
     }
     const wait = think(k, [1500, 3500], [1000, 2200]);
     if (!opts.length) return { move: { act: "pass" }, wait };
     opts.sort((a, b) => b.val - a.val);
+    if (placing) return { move: { act: "place", cell: (k.level === "hard" ? opts[0] : opts[Math.floor(k.rng() * Math.min(3, opts.length))]).i }, wait };
     const passVal = (v.pass + (left ? 0 : 0)) / 3;
     const pickOpt = k.level === "hard" ? opts[0] : opts[Math.floor(k.rng() * Math.min(6, opts.length))];
     if (pickOpt.val < passVal) return { move: { act: "pass" }, wait };
-    return { move: { act: "take", id: pickOpt.p.id, cell: pickOpt.i }, wait };
+    return { move: { act: "take", id: pickOpt.p.id }, wait };
 }
 
 // never have I bet: answers honestly-ish, bets on what a room usually says (hard counts itself in properly)
@@ -1393,7 +1395,7 @@ function critterBot(v, k) {
     const home = v.homes[s];
     if (v.phase === "night") return { move: { act: "ready" }, wait: r(k, 3000, 6000) };
     const pop = v.pops[s];
-    const need = Math.ceil(pop * (v.picks[s] === "mouse" ? 0.5 : 1));
+    const need = Math.ceil((pop + Math.floor(pop / 6)) * (v.picks[s] === "mouse" ? 0.5 : 1));
     const stash = v.stash[s];
     if (v.phase === "plan") {
         if (k.mem.day === v.day) return { move: { act: "ready" }, wait: r(k, 500, 1500) };
@@ -1407,6 +1409,10 @@ function critterBot(v, k) {
         if (hard && huts.length && d(huts[0], home) < 8) add({ a: "guard" });
         const weak = v.huts.slice().sort((a, b) => a.hp - b.hp)[0];
         if (weak && pop >= (hard ? 9 : 7) && (hard || k.rng() < 0.4)) add({ a: "raid", t: weak.id });
+        const rivals = v.homes.map((_, x) => x).filter((x) => x !== s && v.out[x] === null && v.homes[x]);
+        const fat = rivals.sort((a, b) => v.stash[b] - v.stash[a] - (v.walls[b] - v.walls[a]) * 3)[0];
+        if (v.day > 1 && fat !== undefined && pop >= 8 && v.stash[fat] >= 6 && k.rng() < (hard ? 0.6 : 0.3)) add({ a: "rival", t: fat });
+        if (v.day > 2 && k.rng() < 0.35) add({ a: "guard" });
         if (stash > need * 2 + 4) add({ a: "nest" });
         if (v.walls[s] < 2 && stash >= need + 3 && hard) add({ a: "fortify" });
         if (bushes[1]) add({ a: "forage", t: bushes[1].id });

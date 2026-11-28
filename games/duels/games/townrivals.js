@@ -1,6 +1,6 @@
 // Town Rivals: everyone builds ONE shared town, but for themselves. Each round a market of tiles is laid out where
-// everyone can see it, and players draft in snake order (the last to pick goes first next round): buy a tile and place
-// it on any open lot, or pass for coins. 70 kinds of tile (townrivals/tiles.js), and they react to their neighbours
+// everyone can see it. First everyone drafts in turn (buy one tile, or pass for coins), then everyone places what they
+// bought in reverse order, so the last to pick is the first to build. The first picker moves round the table each round. 70 kinds of tile (townrivals/tiles.js), and they react to their neighbours
 // whoever owns them: parks lift every home next to them, factories pollute rival homes, shops cash in on nearby
 // homes, taverns love rival neighbours, gangs rob them unless the law is close. Your biggest connected district scores
 // a bonus. After the last round, most points wins (tiles + district + 1 per 3 coins left).
@@ -128,24 +128,28 @@ function startRound(state, ctx) {
     state.round++;
     const n = state.coins.length;
     state.income = state.round > 1 ? income(state, ctx.rng) : null;
-    // snake: whoever picked last goes first next round
-    const base = seats(n).map((i) => (i + state.round - 1) % n);
-    state.order = state.round % 2 ? base : base.slice().reverse();
-    if (state.round > 1 && state.order[0] === state.lastPicker) state.order.push(state.order.shift());
+    state.phase = "draft";
+    state.order = seats(n).map((i) => (i + state.round - 1) % n);
     state.pos = 0;
     state.pool = draw(state, ctx.rng, n + 3);
     state.picks = [];
+    state.hands = seats(n).map(() => null);
     turn(state, ctx);
 }
 function turn(state, ctx) {
     state.turn = state.order[state.pos];
     const id = ++state.tick;
     state.deadline = state.timed ? ctx.now() + TURN_MS : null;
-    if (state.timed) ctx.later(TURN_MS, () => state.tick === id && !state.over && doPass(state, state.turn, ctx, true));
+    if (state.timed) ctx.later(TURN_MS, () => state.tick === id && !state.over && (state.phase === "draft" ? doPass(state, state.turn, ctx, true) : autoPlace(state, state.turn, ctx)));
 }
 function advance(state, ctx) {
-    state.lastPicker = state.turn;
     state.pos++;
+    if (state.phase === "draft" && state.pos >= state.order.length) {
+        // everyone who bought a tile places it, last picker first
+        state.phase = "place";
+        state.order = state.order.slice().reverse().filter((s) => state.hands[s]);
+        state.pos = 0;
+    }
     if (state.pos < state.order.length) return turn(state, ctx);
     if (state.round >= ROUNDS) {
         state.over = true;
@@ -156,6 +160,22 @@ function advance(state, ctx) {
     }
     startRound(state, ctx);
 }
+function place(state, s, i) {
+    const t = state.hands[s].t;
+    state.hands[s] = null;
+    state.cells[i] = { t, o: s };
+    const pk = state.picks.find((p) => p.s === s);
+    if (pk) pk.cell = i;
+    state.last = { s, t, cell: i, n: ++state.moves };
+}
+function autoPlace(state, s, ctx) {
+    const g = gains(state, s, [state.hands[s].t])[state.hands[s].t];
+    let best = -1;
+    g.forEach((v, i) => v && (best < 0 || v[0] + v[1] / 3 > g[best][0] + g[best][1] / 3) && (best = i));
+    if (best >= 0) place(state, s, best);
+    else state.hands[s] = null;
+    advance(state, ctx);
+}
 function doPass(state, s, ctx, auto) {
     state.coins[s] += PASS;
     state.picks.push({ s, pass: true, auto: !!auto });
@@ -163,15 +183,15 @@ function doPass(state, s, ctx, auto) {
     advance(state, ctx);
 }
 // for the player picking: what each market tile would add to their points on every open lot
-function gains(state, s) {
+function gains(state, s, kinds) {
     const before = score(state, s);
     const base = before.tiles + before.district;
     const out = {};
-    state.pool.forEach((p) => {
-        if (out[p.t]) return;
-        out[p.t] = state.cells.map((x, i) => {
+    kinds.forEach((t) => {
+        if (out[t]) return;
+        out[t] = state.cells.map((x, i) => {
             if (x) return null;
-            state.cells[i] = { t: p.t, o: s };
+            state.cells[i] = { t, o: s };
             const a = score(state, s);
             const coins = tileIncome(state, i);
             state.cells[i] = null;
@@ -188,6 +208,8 @@ function pub(state) {
         cells: state.cells,
         defs: TILES,
         round: state.round,
+        phase: state.phase,
+        hands: state.hands,
         rounds: ROUNDS,
         order: state.order,
         pos: state.pos,
@@ -226,14 +248,14 @@ module.exports = {
             const i = Math.floor(rng() * cells.length);
             if (!cells[i]) cells[i] = "rock";
         }
-        const state = { size, cells, timed: options.timer !== false, round: 0, order: [], pos: 0, turn: null, deadline: null, tick: 0, ids: 0, moves: 0, pool: [], picks: [], coins: new Array(players).fill(START), income: null, last: null, lastPicker: null, over: false };
+        const state = { size, cells, timed: options.timer !== false, round: 0, phase: "draft", hands: [], order: [], pos: 0, turn: null, deadline: null, tick: 0, ids: 0, moves: 0, pool: [], picks: [], coins: new Array(players).fill(START), income: null, last: null, over: false };
         startRound(state, ctx);
         return state;
     },
     view(state, seat) {
         const v = pub(state);
         v.myTurn = !state.over && state.turn === seat;
-        v.gains = v.myTurn ? gains(state, seat) : null;
+        v.gains = v.myTurn ? gains(state, seat, state.phase === "place" ? [state.hands[seat].t] : state.pool.map((p) => p.t)) : null;
         return v;
     },
     tv(state) {
@@ -243,6 +265,15 @@ module.exports = {
         if (state.over) return { error: "The town is finished." };
         if (!p || typeof p !== "object") return { error: "Bad move." };
         if (state.turn !== seat) return { error: "It's not your turn." };
+        if (state.phase === "place") {
+            if (p.act !== "place") return { error: "Place your tile on an open lot." };
+            const i = p.cell;
+            if (!Number.isInteger(i) || i < 0 || i >= state.cells.length) return { error: "Pick a lot on the map." };
+            if (state.cells[i]) return { error: "That lot is taken." };
+            place(state, seat, i);
+            advance(state, ctx);
+            return { ok: true };
+        }
         if (p.act === "pass") {
             doPass(state, seat, ctx, false);
             return { ok: true };
@@ -253,14 +284,11 @@ module.exports = {
         const t = state.pool[k].t;
         const cost = TILES[t].cost;
         if (state.coins[seat] < cost) return { error: "You need " + cost + " coins for that." };
-        const i = p.cell;
-        if (!Number.isInteger(i) || i < 0 || i >= state.cells.length) return { error: "Pick a lot on the map." };
-        if (state.cells[i]) return { error: "That lot is taken." };
         state.coins[seat] -= cost;
         state.pool.splice(k, 1);
-        state.cells[i] = { t, o: seat };
-        state.picks.push({ s: seat, t, cell: i });
-        state.last = { s: seat, t, cell: i, n: ++state.moves };
+        state.hands[seat] = { id: p.id, t };
+        state.picks.push({ s: seat, t });
+        state.last = { s: seat, t, n: ++state.moves };
         advance(state, ctx);
         return { ok: true };
     },
