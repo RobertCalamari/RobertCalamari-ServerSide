@@ -62,6 +62,19 @@ const ACTION = [
     ["Pick a word, then go around the room rhyming with that word. The first to repeat or mess up drinks 3 times", "everyone", 5],
     ["Pick someone to do stand up. They have 30 seconds to make someone laugh, otherwise they finish their drink", "anyone", 5],
     ["Make a bitch cup. When someone gets points, they pour some of their drink in. Whoever tops it off drinks it and receives this card", "everyone", 5, 1, { pot: true }],
+    // added 2026-11
+    ["Pick someone to talk in a British accent until their next turn", "anyone", 3],
+    ["Pick someone to text the third person in their contacts \"I miss you\"", "anyone", 5],
+    ["Everyone pass your drink to the left and take a sip", "everyone", 2],
+    ["Pick someone to do their best impression of another player", "anyone", 3],
+    ["The person with the lowest phone battery drinks 3 times", "everyone", 2],
+    ["Pick someone to hold a plank until their next turn, or drink 4 times", "anyone", 5],
+    ["Swap hands with any player", "you", 4, 1, { fx: "swaphands" }],
+    ["Pick someone to show everyone their screen time", "anyone", 3],
+    ["Everyone who has a tattoo drinks twice", "everyone", 1],
+    ["Pick someone to read their last text out loud", "anyone", 4],
+    ["Draw 2 cards, then give one to another player", "you", 2, 1, { fx: "draw2give" }],
+    ["Pick someone to call a parent and say \"I love you\"", "anyone", 6],
 ];
 
 const CHALLENGE = [
@@ -83,6 +96,12 @@ const CHALLENGE = [
     ["Paper Airplanes: See who can make a paper airplane and have it fly the farthest", "everyone", 2],
     ["Card Memory: Pick someone to see who can find more matches from a deck of cards spread out on the table", "anyone", 5],
     ["Drawing Competition: You choose what to draw. Everyone then draws it. After 1 min, everyone votes on the winner", "everyone", 2],
+    ["Thumb War: Pick someone for a best out of 3", "anyone", 2],
+    ["Hot Seat: Everyone takes turns trying to make the others laugh for 1 minute. Last one to laugh wins", "everyone", 3],
+    ["Coin Flip Call: Pick someone and call heads or tails 3 times each. Most right wins", "anyone", 1],
+    ["Balance Beam: Pick someone and stand on one foot. Last one standing wins", "anyone", 3],
+    ["Category Sprint: Pick someone and a category. Most words in 30 seconds wins", "anyone", 3],
+    ["Tallest Tower: Everyone stacks anything on the table. Tallest tower after 1 minute wins", "everyone", 4],
 ];
 
 // [text, cost, effect, copies]
@@ -98,6 +117,10 @@ const COUNTER = [
     ["Cancel the card that was just played, and put it in your hand", 1, "steal", 2],
     ["If someone was targeted with an action card, divert to an adjacent player", 0, "adjacent", 2],
     ["If someone was targeted with an action card, everyone now does what it says", 0, "everyone", 2],
+    ["Cancel the card that was just played. Whoever played it drinks 3 times", 2, "punish", 1],
+    ["If someone was targeted with an action card, it now targets everyone except you", 1, "allbut", 1],
+    ["Swap who played it: you score the points instead", 3, "swapscore", 1],
+    ["If someone was targeted with an action card, you and the target both have to do it", 0, "both", 1],
 ];
 
 const WAIT = [
@@ -114,6 +137,9 @@ const WAIT = [
     ["Until someone stands up", 2], ["Until someone laughs", 2], ["Until someone starts singing or humming", 2],
     ["Until someone uses their phone", 1], ["Until someone asks a question", 1], ["Until someone plays a wait card", 2],
     ["Until someone picks something up off the floor", 2], ["Until someone yells at someone else", 2],
+    ["Until someone says \"one more\"", 3], ["Until someone checks their reflection", 2], ["Until someone says \"wait, what?\"", 3],
+    ["Until someone mentions food", 2], ["Until someone makes a toast", 4], ["Until someone forgets the rules", 3],
+    ["Until someone says \"I'm not drunk\"", 5], ["Until someone starts a sentence with \"So...\"", 2],
 ];
 
 // number cards as printed: value -> copies; 0 = "Any number, but drink that amount (up to 6)"

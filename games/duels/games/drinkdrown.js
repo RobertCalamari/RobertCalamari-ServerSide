@@ -11,7 +11,7 @@ const START = 10;
 const DRAW = 3;
 const REACT_MS = 9000;
 const LOG = 10;
-const DIVERTS = ["self", "along", "back", "beside", "adjacent", "everyone"];
+const DIVERTS = ["self", "along", "back", "beside", "adjacent", "everyone", "allbut", "both"];
 
 const card = (id) => CARDS[id];
 const N = (s) => "#" + s + "#"; // a player, filled in with their name on the phone
@@ -137,7 +137,7 @@ function afterReact(state, ctx) {
 }
 
 function targetsOf(state, p) {
-    if (p.everyone || p.card.who === "everyone") return seats(state.n);
+    if (p.everyone || p.card.who === "everyone") return seats(state.n).filter((s) => s !== p.exclude);
     return p.targets;
 }
 
@@ -154,7 +154,14 @@ function finish(state, refused, ctx) {
     const times = p.twice ? 2 : 1;
     const targets = targetsOf(state, p);
     for (let k = 0; k < times; k++) {
-        if (c.fx === "draw2") draw(state, p.by, 2, ctx);
+        if (c.fx === "draw2" || c.fx === "draw2give") draw(state, p.by, 2, ctx);
+        if (c.fx === "swaphands") {
+            const v = p.pick && p.pick.player;
+            if (Number.isInteger(v) && v !== p.by) {
+                [state.hands[p.by], state.hands[v]] = [state.hands[v], state.hands[p.by]];
+                log(state, N(p.by) + " swapped hands with " + N(v), "info");
+            }
+        }
         if (c.fx === "swap3") {
             if (p.pick && take(state.hands[p.by], p.pick.card)) state.discard.push(p.pick.card);
             draw(state, p.by, 3, ctx);
@@ -204,12 +211,17 @@ function finish(state, refused, ctx) {
     else if (c.pot) {
         state.cup = { id: c.id, open: true, by: p.by };
         log(state, "The cup is on the table. Whoever tops it off drinks it and takes the card", "info");
-    } else if (refused && p.keeper !== undefined && p.keeper !== p.by) state.discard.push(c.id);
+    } else if (refused && p.keepIfDone) state.discard.push(c.id);
     else score(state, keeper, c.id, refused ? 2 : 1, c.share && targets[0] !== keeper ? { with: [targets[0]] } : null);
     if (p.along) score(state, p.along.by, p.along.id, refused ? 2 : 1);
     log(state, N(keeper) + " scored " + (c.fx === "takepoint" || c.pot ? 0 : c.v * (refused ? 2 : 1)) + (refused ? " (refused: double!)" : ""), "score");
-    state.phase = "turn";
     state.pending = null;
+    // "draw 2, then give one to another player": the player picks which card to hand over next
+    const to = p.pick && p.pick.player;
+    if (c.fx === "draw2give" && Number.isInteger(to) && to !== p.by && state.hands[p.by].length) {
+        state.give = { from: p.by, to, left: times };
+        state.phase = "give";
+    } else state.phase = "turn";
 }
 
 function pub(state) {
@@ -229,6 +241,7 @@ function pub(state) {
         reactAt: state.reactAt,
         passed: state.phase === "react" ? state.passed : null,
         cup: state.cup && state.cup.open ? { ...card(state.cup.id), id: state.cup.id } : null,
+        give: state.phase === "give" ? state.give : null,
         pending: p
             ? {
                   card: p.card,
@@ -236,6 +249,7 @@ function pub(state) {
                   targets: targetsOf(state, p),
                   everyone: !!(p.everyone || p.card.who === "everyone"),
                   keeper: p.keeper === undefined ? p.by : p.keeper,
+                  keepIfDone: !!p.keepIfDone,
                   counter: p.counter || null,
                   along: p.along ? { ...card(p.along.id), by: p.along.by } : null,
                   twice: !!p.twice,
@@ -266,6 +280,11 @@ function playCard(state, s, pl, ctx) {
         if (need === 1 && state.n > 1 && targets[0] === s) return { error: "Pick someone else." };
     }
     const pick = {};
+    if (c.fx === "swaphands" || c.fx === "draw2give") {
+        const v = pl.pick && pl.pick.player;
+        if (!Number.isInteger(v) || v === s || v < 0 || v >= state.n) return { error: c.fx === "swaphands" ? "Pick who to swap hands with." : "Pick who gets a card." };
+        pick.player = v;
+    }
     if (c.fx === "steal") {
         const v = pl.pick && pl.pick.player;
         if (!Number.isInteger(v) || v === s || v < 0 || v >= state.n || !state.hands[v].length) return { error: "Pick someone with cards to take from." };
@@ -326,8 +345,9 @@ function counter(state, s, pl, ctx) {
     p.counter = { by: s, k, text: card(id).text };
     log(state, N(s) + " countered: " + card(id).text, "counter");
     const c = p.card;
-    if (k === "cancel" || k === "return" || k === "steal") {
-        if (k === "cancel") state.discard.push(c.id);
+    if (k === "cancel" || k === "return" || k === "steal" || k === "punish") {
+        if (k === "cancel" || k === "punish") state.discard.push(c.id);
+        if (k === "punish") log(state, N(p.by) + " drinks 3 times", "drink");
         if (k === "return") state.hands[p.by].push(c.id);
         if (k === "steal") state.hands[s].push(c.id);
         state.tick++;
@@ -342,7 +362,14 @@ function counter(state, s, pl, ctx) {
     if (k === "self") {
         p.targets = [s];
         p.keeper = s;
+        p.keepIfDone = true;
     }
+    if (k === "swapscore") p.keeper = s;
+    if (k === "allbut") {
+        p.everyone = true;
+        p.exclude = s;
+    }
+    if (k === "both" && !p.targets.includes(s)) p.targets = p.targets.concat(s);
     if (k === "twice") p.twice = true;
     if (k === "everyone") p.everyone = true;
     if (k === "along") {
@@ -414,6 +441,18 @@ module.exports = {
             take(state.hands[s], id);
             score(state, s, id, 1);
             log(state, N(s) + " claimed " + card(id).text.toLowerCase() + " (+" + card(id).v + "). " + N(by) + " drinks!", "wait");
+            return { ok: true };
+        }
+        if (act === "give") {
+            const g = state.give;
+            if (state.phase !== "give" || !g || s !== g.from) return { error: "Nothing to give right now." };
+            if (!take(state.hands[s], p.id)) return { error: "Pick a card from your hand." };
+            state.hands[g.to].push(p.id);
+            log(state, N(s) + " gave a card to " + N(g.to), "info");
+            if (--g.left <= 0 || !state.hands[s].length) {
+                state.give = null;
+                state.phase = "turn";
+            }
             return { ok: true };
         }
         if (act === "cup") {

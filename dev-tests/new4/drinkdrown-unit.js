@@ -11,7 +11,8 @@ const ok = (c, m) => {
     }
 };
 const by = (t) => CARDS.filter((c) => c.t === t).length;
-ok(CARDS.length === 188 && by("action") === 69 && by("wait") === 38 && by("counter") === 21 && by("challenge") === 18 && by("number") === 42, "deck is 188: " + ["action", "wait", "counter", "challenge", "number"].map((t) => t + " " + by(t)).join(", "));
+const TOTAL = 218;
+ok(CARDS.length === TOTAL && by("action") === 81 && by("wait") === 46 && by("counter") === 25 && by("challenge") === 24 && by("number") === 42, "deck is " + TOTAL + ": " + ["action", "wait", "counter", "challenge", "number"].map((t) => t + " " + by(t)).join(", "));
 ok(CARDS.filter((c) => c.wild).length === 5, "5 wild numbers");
 
 function mulberry(a) {
@@ -67,6 +68,7 @@ function game(seed, n) {
     };
     for (let step = 0; step < 4000 && st.phase !== "done"; step++) {
         const before = where(st).length;
+        let last = "";
         const s = st.turn;
         let r = { ok: true };
         if (rng() < 0.05) {
@@ -87,12 +89,14 @@ function game(seed, n) {
                 const targets = c.who === "anyone" ? (need === 1 ? [pick(others)] : [...Array(n).keys()].sort(() => rng() - 0.5).slice(0, need)) : [];
                 const pk = {};
                 if (c.fx === "steal") pk.player = pick(others.filter((o) => st.hands[o].length).concat(others));
+                if (c.fx === "swaphands" || c.fx === "draw2give") pk.player = pick(others);
                 if (c.fx === "swap3") pk.card = st.hands[s].find((x) => x !== id && !pay.pay.includes(x));
                 if (c.fx === "dig") pk.card = st.discard[0];
                 r = mv(s, { act: "play", id, ...pay, targets, pick: pk });
                 if (r.ok) stats.plays++;
             } else {
                 r = mv(s, { act: "end" });
+                last = "end";
                 stats.turns++;
             }
         } else if (st.phase === "react") {
@@ -132,6 +136,9 @@ function game(seed, n) {
                 r = mv(p.by, { act: "win", seat: pick(p.players) });
                 stats.challenges++;
             }
+        } else if (st.phase === "give") {
+            r = mv(st.give.from, { act: "give", id: st.hands[st.give.from][0] });
+            stats.gives = (stats.gives || 0) + 1;
         } else if (st.phase === "discard") {
             const over = st.hands[s].length - 10;
             r = mv(s, { act: "discard", ids: st.hands[s].slice(0, over) });
@@ -139,12 +146,14 @@ function game(seed, n) {
         if (rng() < 0.01 && st.cup && st.cup.open) mv(Math.floor(rng() * n), { act: "cup" });
         if (r && r.error) stats.errors++;
         const ids = where(st);
-        if (ids.length !== 188 || new Set(ids).size !== 188) {
+        if (ids.length !== TOTAL || new Set(ids).size !== TOTAL) {
             ok(false, "seed " + seed + " step " + step + ": " + ids.length + " cards (" + new Set(ids).size + " unique), was " + before + ", phase " + st.phase);
             return stats;
         }
-        if (st.hands.some((h, i) => h.length > 10 && !(st.phase === "discard" && i === st.turn))) {
-            ok(false, "hand over 10 outside the discard step");
+        // a gift or a hand swap can push someone over 10 off-turn; they discard down at the end of their own turn
+        const prev = (st.turn - 1 + n) % n;
+        if (r && r.ok && last === "end" && st.phase === "turn" && st.hands[prev].length > 10 && st.skip.every((x) => !x)) {
+            ok(false, "player ended their turn with more than 10 cards");
             return stats;
         }
         JSON.stringify(G.view(st, 0));
