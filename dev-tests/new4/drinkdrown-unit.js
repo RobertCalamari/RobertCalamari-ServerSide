@@ -34,6 +34,7 @@ function where(st) {
         if (p.pot) ids.push(...p.pot.map((e) => e.id));
     }
     if (st.cup && st.cup.open) ids.push(st.cup.id);
+    (st.queue || []).forEach((q) => ids.push(q.card.id));
     return ids;
 }
 
@@ -85,7 +86,18 @@ function game(seed, n) {
             }
         } else if (st.phase === "turn") {
             const playable = st.hands[s].filter((id) => ["action", "challenge"].includes(CARDS[id].t));
-            const id = rng() < 0.75 ? pick(playable) : undefined;
+            const plain = st.hands[s].filter((x) => CARDS[x].t === "action" && !CARDS[x].fx);
+            if (plain.length >= 2 && rng() < 0.25) {
+                const two = plain.slice(0, 2);
+                const pay = payFor(s, CARDS[two[0]].v + CARDS[two[1]].v, two);
+                if (pay) {
+                    const targets = {};
+                    two.forEach((x) => CARDS[x].who === "anyone" && (targets[x] = (CARDS[x].n || 1) === 1 ? [(s + 1) % n] : [...Array(n).keys()].slice(0, CARDS[x].n)));
+                    const rr = mv(s, { act: "play", ids: two, ...pay, targets });
+                    if (rr.ok) stats.batches = (stats.batches || 0) + 1;
+                }
+            }
+            const id = rng() < 0.75 && st.phase === "turn" ? pick(playable.filter((x) => st.hands[s].includes(x))) : undefined;
             const c = id !== undefined ? CARDS[id] : null;
             const pay = c ? payFor(s, c.v, [id]) : null;
             if (c && pay) {
@@ -149,6 +161,7 @@ function game(seed, n) {
             r = mv(s, { act: "discard", ids: st.hands[s].slice(0, over) });
         }
         if (rng() < 0.01 && st.cup && st.cup.open) mv(Math.floor(rng() * n), { act: "cup" });
+        if (rng() < 0.04 && st.phase !== "done" && mv(0, { act: "undo" }, host).ok) stats.undos = (stats.undos || 0) + 1;
         if (r && r.error) stats.errors++;
         const ids = where(st);
         if (ids.length !== TOTAL || new Set(ids).size !== TOTAL) {

@@ -1,16 +1,20 @@
 // Drink or Drown (Robert's card game): a point-collecting drinking game. Everyone holds up to 10 cards. On your turn play
-// Action and Challenge cards by paying their number with Number cards (Wait cards can pay too), then draw 3. Played
-// actions score their number; if someone refuses the task the points double. Anyone can answer a played card with a
-// Counter (cancel, divert, steal it...). Wait cards are claimed any time their event happens; whoever caused it drinks.
-// Challenges: pick an opponent (or everyone joins), everyone may ante scored cards, the winner takes the pot. First to
-// the goal ends the game at the end of that turn; most points wins.
+// Action and Challenge cards by paying their number with Number cards, several at once from one payment if you like,
+// then draw 3. Played actions score their number; if someone refuses the task the points double. Anyone can answer a
+// played card with a Counter (cancel, divert, steal it...). Wait cards are cashed in when their event happens (points,
+// or kept as a number card); whoever caused it drinks. Challenges: pick an opponent (or everyone joins), everyone may
+// ante scored cards, the winner takes the pot. The game ends as soon as someone reaches the goal; most points wins.
+// The host can undo the last few moves when people argue.
 const { ranked, seats } = require("../rank");
 const { CARDS } = require("../drinkdrown/cards");
 const HAND = 10;
 const START = 10;
 const DRAW = 3;
 const REACT_MS = 9000;
+const HOLD_MS = 25000; // someone opened a counter: the window waits this long for them
 const LOG = 10;
+const UNDO = 15;
+const UNDOABLE = ["play", "counter", "convert", "claim", "give", "cup", "done", "join", "ante", "start", "win", "end", "discard"];
 const DIVERTS = ["self", "along", "back", "beside", "adjacent", "everyone", "allbut", "both"];
 
 const card = (id) => CARDS[id];
@@ -116,10 +120,34 @@ function nextTurn(state, ctx) {
 function startReact(state, ctx) {
     state.phase = "react";
     state.passed = seats(state.n).map((s) => s === state.pending.by);
-    state.reactAt = ctx.now() + REACT_MS;
-    const tick = ++state.tick;
+    state.held = seats(state.n).map(() => false);
     if (state.n < 2) return afterReact(state, ctx);
-    ctx.later(REACT_MS, () => state.tick === tick && state.phase === "react" && afterReact(state, ctx));
+    armReact(state, ctx, REACT_MS);
+}
+
+function armReact(state, ctx, ms) {
+    state.reactAt = ctx.now() + ms;
+    const tick = ++state.tick;
+    ctx.later(ms, () => state.tick === tick && state.phase === "react" && afterReact(state, ctx));
+}
+
+// next card of a several-at-once play, or back to the player's turn
+function carryOn(state, ctx) {
+    state.pending = null;
+    if (state.queue && state.queue.length) {
+        state.pending = state.queue.shift();
+        log(state, N(state.pending.by) + " played " + name(state.pending.card) + (state.pending.targets.length ? " on " + state.pending.targets.map((t) => N(t)).join(" & ") : ""), state.pending.card.t);
+        startReact(state, ctx);
+    } else state.phase = "turn";
+}
+
+// the game ends the moment someone reaches the goal (once nothing is left half-played)
+function checkGoal(state) {
+    if (!state.goal || state.phase === "done" || state.phase === "setup" || state.pending || (state.queue && state.queue.length)) return;
+    if (seats(state.n).some((s) => points(state, s) >= state.goal)) {
+        state.phase = "done";
+        log(state, "Someone reached " + state.goal + " points. Game over!", "score");
+    }
 }
 
 function afterReact(state, ctx) {
@@ -224,7 +252,7 @@ function finish(state, refused, ctx) {
     if (c.fx === "draw2give" && Number.isInteger(to) && to !== p.by && state.hands[p.by].length) {
         state.give = { from: p.by, to, left: times };
         state.phase = "give";
-    } else state.phase = "turn";
+    } else carryOn(state, ctx);
 }
 
 function pub(state) {
@@ -245,6 +273,9 @@ function pub(state) {
         passed: state.phase === "react" ? state.passed : null,
         cup: state.cup && state.cup.open ? { ...card(state.cup.id), id: state.cup.id } : null,
         give: state.phase === "give" ? state.give : null,
+        queue: state.queue ? state.queue.map((q) => ({ ...q.card })) : [],
+        held: state.phase === "react" ? state.held : null,
+        undo: state.history && state.history.length ? state.history[state.history.length - 1].label : null,
         pending: p
             ? {
                   card: p.card,
@@ -267,46 +298,69 @@ function pub(state) {
     };
 }
 
-function playCard(state, s, pl, ctx) {
-    if (state.phase !== "turn" || s !== state.turn) return { error: "Wait for your turn." };
-    const id = pl.id;
-    if (!Number.isInteger(id) || !state.hands[s].includes(id)) return { error: "That card isn't in your hand." };
+// one card's targets and picks, checked against the hand (others = the rest of this play and its payment)
+function setup(state, s, id, targets, pl, others) {
     const c = card(id);
-    if (c.t !== "action" && c.t !== "challenge") return { error: "Play Action or Challenge cards on your turn." };
-    const paid = pay(state, s, c.v, pl.pay, pl.wild, [id]);
-    if (paid.error) return paid;
-    let targets = [];
+    let t = [];
     if (c.who === "anyone") {
         const need = c.n || 1;
-        targets = Array.isArray(pl.targets) ? pl.targets : [];
-        if (targets.length !== need || new Set(targets).size !== need || targets.some((t) => !Number.isInteger(t) || t < 0 || t >= state.n)) return { error: need === 1 ? "Pick who it's for." : "Pick " + need + " people." };
-        if (need === 1 && state.n > 1 && targets[0] === s) return { error: "Pick someone else." };
+        t = Array.isArray(targets) ? targets : [];
+        if (t.length !== need || new Set(t).size !== need || t.some((x) => !Number.isInteger(x) || x < 0 || x >= state.n)) return { error: need === 1 ? "Pick who it's for." : "Pick " + need + " people." };
+        if (need === 1 && state.n > 1 && t[0] === s) return { error: "Pick someone else." };
     }
     const pick = {};
     if (c.fx === "swaphands" || c.fx === "draw2give") {
-        const v = pl.pick && pl.pick.player;
+        const v = pl && pl.player;
         if (!Number.isInteger(v) || v === s || v < 0 || v >= state.n) return { error: c.fx === "swaphands" ? "Pick who to swap hands with." : "Pick who gets a card." };
         pick.player = v;
     }
     if (c.fx === "steal") {
-        const v = pl.pick && pl.pick.player;
+        const v = pl && pl.player;
         if (!Number.isInteger(v) || v === s || v < 0 || v >= state.n || !state.hands[v].length) return { error: "Pick someone with cards to take from." };
         pick.player = v;
     }
     if (c.fx === "swap3") {
-        const v = pl.pick && pl.pick.card;
-        if (!Number.isInteger(v) || v === id || !state.hands[s].includes(v) || paid.ids.includes(v)) return { error: "Pick a card from your hand to discard." };
+        const v = pl && pl.card;
+        if (!Number.isInteger(v) || !state.hands[s].includes(v) || others.includes(v)) return { error: "Pick a card from your hand to discard." };
         pick.card = v;
     }
     if (c.fx === "dig") {
-        const v = pl.pick && pl.pick.card;
+        const v = pl && pl.card;
         if (!Number.isInteger(v) || !state.discard.includes(v)) return { error: "Pick a card from the discard pile." };
         pick.card = v;
     }
-    take(state.hands[s], id);
+    return { ok: true, p: { card: { ...c }, by: s, targets: t, pick } };
+}
+
+// play one card, or several Action cards at once paid from one pile of numbers; they then go one after another
+function playCard(state, s, pl, ctx) {
+    if (state.phase !== "turn" || s !== state.turn) return { error: "Wait for your turn." };
+    const ids = Array.isArray(pl.ids) ? pl.ids : [pl.id];
+    if (!ids.length || ids.length > HAND || new Set(ids).size !== ids.length) return { error: "Pick the cards to play." };
+    for (const id of ids) {
+        if (!Number.isInteger(id) || !state.hands[s].includes(id)) return { error: "That card isn't in your hand." };
+        const c = card(id);
+        if (c.t !== "action" && c.t !== "challenge") return { error: "Play Action or Challenge cards on your turn." };
+        if (c.t === "challenge" && ids.length > 1) return { error: "Play a Challenge on its own." };
+    }
+    const cost = ids.reduce((a, id) => a + card(id).v, 0);
+    const paid = pay(state, s, cost, pl.pay, pl.wild, ids);
+    if (paid.error) return paid;
+    const one = ids.length === 1;
+    const list = [];
+    for (const id of ids) {
+        const t = one && Array.isArray(pl.targets) ? pl.targets : pl.targets && pl.targets[id];
+        const pk = one && pl.pick && !pl.picks ? pl.pick : pl.picks && pl.picks[id];
+        const r = setup(state, s, id, t, pk, ids.concat(paid.ids));
+        if (r.error) return ids.length > 1 ? { error: card(id).text.slice(0, 40) + "…: " + r.error } : r;
+        list.push(r.p);
+    }
+    ids.forEach((id) => take(state.hands[s], id));
     spend(state, s, paid);
-    state.pending = { card: { ...c }, by: s, targets, pick, at: ctx.now() };
-    log(state, N(s) + " played " + name(c) + (targets.length ? " on " + targets.map((t) => N(t)).join(" & ") : ""), c.t);
+    if (ids.length > 1) log(state, N(s) + " played " + ids.length + " cards at once (paid " + paid.total + ")", "action");
+    state.queue = list.slice(1);
+    state.pending = list[0];
+    log(state, N(s) + " played " + name(list[0].card) + (list[0].targets.length ? " on " + list[0].targets.map((t) => N(t)).join(" & ") : ""), list[0].card.t);
     startReact(state, ctx);
     return { ok: true };
 }
@@ -355,8 +409,7 @@ function counter(state, s, pl, ctx) {
         if (k === "steal") state.hands[s].push(c.id);
         state.tick++;
         state.reactAt = null;
-        state.phase = "turn";
-        state.pending = null;
+        carryOn(state, ctx);
         return { ok: true };
     }
     if (k === "skip") state.skip[p.by]++;
@@ -409,6 +462,56 @@ module.exports = {
     },
     move(state, s, p, ctx) {
         if (!p || typeof p !== "object") return { error: "Bad move." };
+        if (p.act === "undo") return undo(state, ctx);
+        if (p.act === "hold") return hold(state, s, ctx);
+        // remember the state before anything that changes the game, so the host can undo it
+        const snap = UNDOABLE.includes(p.act) && state.phase !== "done" && state.phase !== "setup" ? JSON.stringify(state, (k, v) => (k === "history" ? undefined : v)) : null;
+        const logNo = state.logNo;
+        const r = act(state, s, p, ctx);
+        if (snap && r && r.ok && !r.quiet) {
+            const last = state.logNo > logNo ? state.log[state.log.length - 1].text : N(s) + ": " + p.act;
+            state.history = (state.history || []).concat({ label: last, snap }).slice(-UNDO);
+        }
+        if (r && r.ok) checkGoal(state);
+        return r;
+    },
+    result(state) {
+        if (state.phase !== "done") return null;
+        const pts = seats(state.n).map((s) => points(state, s));
+        const best = Math.max(...pts);
+        return ranked(pts, "high", "Top score " + best + " after " + state.turns + " turns");
+    },
+};
+
+// host only: put the game back to how it was before the last move
+function undo(state, ctx) {
+    if (!ctx.host) return { error: "Only the host can undo." };
+    if (state.phase === "done") return { error: "The game is over." };
+    const h = state.history && state.history.pop();
+    if (!h) return { error: "Nothing to undo." };
+    const history = state.history;
+    const tick = state.tick;
+    const logNo = state.logNo;
+    Object.keys(state).forEach((k) => delete state[k]);
+    Object.assign(state, JSON.parse(h.snap));
+    state.history = history;
+    state.tick = tick + 1;
+    state.logNo = Math.max(state.logNo, logNo);
+    if (state.phase === "react") armReact(state, ctx, REACT_MS);
+    log(state, "The host undid: " + h.label, "info");
+    return { ok: true };
+}
+
+// someone opened a counter card: give them time to pick (once per card)
+function hold(state, s, ctx) {
+    if (state.phase !== "react" || !state.pending || s === state.pending.by || (state.passed && state.passed[s]) || !state.held || state.held[s]) return { ok: true, quiet: true };
+    state.held[s] = true;
+    armReact(state, ctx, Math.max(HOLD_MS, (state.reactAt || 0) - ctx.now()));
+    return { ok: true };
+}
+
+function act(state, s, p, ctx) {
+    {
         if (state.phase === "done") return { error: "The game is over." };
         const act = p.act;
         // the host sets how long to play (points to win, 0 = until the host ends it), then the first turn starts
@@ -467,7 +570,7 @@ module.exports = {
             log(state, N(s) + " gave a card to " + N(g.to), "info");
             if (--g.left <= 0 || !state.hands[s].length) {
                 state.give = null;
-                state.phase = "turn";
+                carryOn(state, ctx);
             }
             return { ok: true };
         }
@@ -528,8 +631,7 @@ module.exports = {
                 pend.pot.forEach((e) => state.scored[w].push({ id: e.id, x: e.x }));
                 state.scored[w].push({ id: pend.card.id, x: 1 });
                 log(state, N(w) + " won the challenge and the pot (+" + (pend.card.v + pend.pot.reduce((a, e) => a + card(e.id).v * e.x, 0)) + ")", "score");
-                state.phase = "turn";
-                state.pending = null;
+                carryOn(state, ctx);
                 return { ok: true };
             }
         }
@@ -556,11 +658,5 @@ module.exports = {
             return { ok: true };
         }
         return { error: "Bad move." };
-    },
-    result(state) {
-        if (state.phase !== "done") return null;
-        const pts = seats(state.n).map((s) => points(state, s));
-        const best = Math.max(...pts);
-        return ranked(pts, "high", "Top score " + best + " after " + state.turns + " turns");
-    },
-};
+    }
+}
