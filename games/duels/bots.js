@@ -1418,6 +1418,8 @@ function critterBot(v, k) {
         ["spikes", near(home, 2.8, 5, "spikes")],
         ["tower", near(home, 2.8, 4, "tower")],
         ["herb", near(home, 2.8, 5, "herb")],
+        ["winterberry", near(home, 2.8, 6, "winterberry")],
+        ["nest"],
         ["thorn", near(home, 3, 7, "thorn")],
         ["hive", near(home, 3, 6, "hive")],
         rival !== undefined ? ["snare", near(v.homes[rival], 2.7, 4, "snare")] : ["wall", near(home, 3, 5, "wall")],

@@ -24,10 +24,10 @@ const PAY = 3; // everyone's coins each morning
 const WALL_HP = 4;
 
 const SPECIES = {
-    bunny: { icon: "🐰", name: "Bunnies", perk: "Breed easily (odds start at 40 instead of 60)" },
+    bunny: { icon: "🐰", name: "Bunnies", perk: "Breed easily (the baby roll starts at 40 instead of 60)" },
     turtle: { icon: "🐢", name: "Turtles", perk: "3 hit points instead of 2" },
     squirrel: { icon: "🐿️", name: "Squirrels", perk: "Carry 2 berries at once" },
-    mouse: { icon: "🐭", name: "Mice", perk: "Eat less: a third of a berry a night instead of half" },
+    mouse: { icon: "🐭", name: "Mice", perk: "Eat less: 6 berries feed 10 of them" },
     hedgehog: { icon: "🦔", name: "Hedgehogs", perk: "Thorns don't hurt them; predators that bite them often die" },
     fox: { icon: "🦊", name: "Foxes", perk: "Half the time a predator that touches them dies instead" },
     lizard: { icon: "🦎", name: "Lizards", perk: "Heatwaves and wildfire can't touch them" },
@@ -42,6 +42,8 @@ const price = (state, s, k) => SHOP[k].coins - (perk(state, s, "beaver") && SOLI
 const SHOP = {
     seed: { icon: "🌱", name: "Berry bush", coins: 3, place: "spot", text: "Plant a bush. It fruits tomorrow (6 berries) and regrows every night. Anyone's critters can pick it." },
     thorn: { icon: "🌵", name: "Thorn bush", coins: 2, place: "spot", text: "Fruits straight away and regrows fast, but every berry picked costs that critter 1 hit point. Yours too." },
+    winterberry: { icon: "🎄", name: "Winterberry bush", coins: 4, place: "spot", text: "Fruits tomorrow and keeps regrowing through winter and heatwaves." },
+    nest: { icon: "🧶", name: "Wool nest", coins: 5, once: true, text: "Your critters stay warm: cold snaps and winter don't double what they eat." },
     tree: { icon: "🍎", name: "Fruit tree", coins: 6, place: "spot", text: "Takes 4 days to grow, then drops 3 berries on the ground around it every night." },
     wall: { icon: "🧱", name: "Wall", coins: 2, place: "wall", text: "One block critters and predators bump into. Takes 4 knocks: every bump from anyone (your own critters too) chips it." },
     gate: { icon: "🚪", name: "Gate", coins: 4, place: "wall", text: "A wall block only your own critters can walk through. Wears down like a wall." },
@@ -63,6 +65,7 @@ const WEATHER = {
     wind: { icon: "🌬️", name: "Windy", text: "Critters and predators get blown one way across the island." },
     heat: { icon: "🥵", name: "Heatwave", text: "Bushes don't regrow tonight. Lizards don't care." },
     cold: { icon: "🥶", name: "Cold snap", text: "Everyone eats double tonight." },
+    winter: { icon: "❄️", name: "Winter", text: "The last 3 days: everyone eats double and nothing regrows. Stock up!" },
     rainbow: { icon: "🌈", name: "Rainbow", text: "Extra coins and gems lie around the island." },
 };
 const DISASTERS = {
@@ -236,8 +239,9 @@ function addDen(state, rng) {
     const p = spot(rng, (q) => ellipse(q.x, q.y) < 0.8 && state.homes.every((h) => !h || dist(h, q) > 6) && state.dens.every((d) => dist(d, q) > 5) && !blocked(state, q));
     if (p) state.dens.push({ id: ++state.ids, kind: kinds[Math.floor(rng() * kinds.length)], x: p.x, y: p.y, lvl: 1 });
 }
+const BUSH_LIFE = 30; // berries a bush gives before it withers
 function addBush(state, p, k, ready, food) {
-    state.bushes.push({ id: ++state.ids, x: r1(p.x), y: r1(p.y), thorn: k === "thorn", tree: k === "tree", ready, food, max: k === "tree" ? 0 : 8 });
+    state.bushes.push({ id: ++state.ids, x: r1(p.x), y: r1(p.y), thorn: k === "thorn", tree: k === "tree", hardy: k === "winterberry", ready, food, max: k === "tree" ? 0 : 8, left: BUSH_LIFE });
 }
 function startGame(state, ctx) {
     const rng = ctx.rng;
@@ -299,9 +303,9 @@ function buy(state, s, p) {
     }
     state.coins[s] -= cost;
     if (it.food) state.stash[s] -= it.food;
-    if (p.k === "seed" || p.k === "thorn" || p.k === "tree") addBush(state, at, p.k, state.day + (p.k === "seed" ? 1 : p.k === "thorn" ? 0 : 4), p.k === "thorn" ? 4 : 0);
+    if (p.k === "seed" || p.k === "thorn" || p.k === "tree" || p.k === "winterberry") addBush(state, at, p.k, state.day + (p.k === "thorn" ? 0 : p.k === "tree" ? 4 : 1), p.k === "thorn" ? 4 : 0);
     else if (p.k === "fire") state.fire[s] = 2;
-    else if (p.k === "store") state.owned[s].push("store");
+    else if (p.k === "store" || p.k === "nest") state.owned[s].push(p.k);
     else state.items.push({ id: ++state.ids, k: p.k, s, x: r1(at.x), y: r1(at.y), x2: at2 ? r1(at2.x) : undefined, y2: at2 ? r1(at2.y) : undefined, ready: 0, hp: p.k === "spikes" ? 3 : WALL_HP });
     return { ok: true };
 }
@@ -490,6 +494,10 @@ function touch(state, c, rng, from) {
         if (b) {
             b.food--;
             c.carry++;
+            if (--b.left <= 0) {
+                state.bushes.splice(state.bushes.indexOf(b), 1);
+                poof(state, b, "wither");
+            }
             if (b.thorn && !perk(state, s, "hedgehog")) hurt(state, c, "thorn");
         }
     }
@@ -559,9 +567,9 @@ function startNight(state, ctx) {
     state.critters.slice().forEach((c) => c.snared !== null && c.snared < state.day && kill(state, c, "snare"));
     alive(state).forEach((s) => {
         const nt = state.night[s];
-        // supper: half a berry each (mice less, cold snaps double); short on food and the ones who go without take 1 damage
+        // supper: a berry each (mice less, cold snaps and winter double); short on food and the ones who go without take 1 damage
         const pop = mine(state, s).filter((c) => c.snared === null).length;
-        const need = Math.ceil(pop * (perk(state, s, "mouse") ? 0.35 : 0.5) * (state.weather === "cold" ? 2 : 1));
+        const need = Math.ceil(pop * (perk(state, s, "mouse") ? 0.6 : 1) * ((state.weather === "cold" || state.weather === "winter") && !state.owned[s].includes("nest") ? 2 : 1));
         const ate = Math.min(need, state.stash[s]);
         state.stash[s] -= ate;
         nt.ate = ate;
@@ -599,7 +607,7 @@ function startNight(state, ctx) {
         }
     });
     // the island regrows; fruit trees drop berries; dens grow every 3 days
-    const grow = state.weather === "heat" ? 0 : state.weather === "rain" ? 2 : 1;
+    const grow = state.weather === "heat" || state.weather === "winter" ? 0 : state.weather === "rain" ? 2 : 1;
     state.bushes.forEach((b) => {
         if (b.tree) {
             if (b.ready <= state.day + 1)
@@ -610,13 +618,14 @@ function startNight(state, ctx) {
             return;
         }
         if (b.ready === state.day + 1) b.food = 6;
-        else if (b.ready <= state.day) b.food = Math.min(b.max, b.food + (b.thorn ? 2 : 1) * grow);
+        else if (b.ready <= state.day) b.food = Math.min(b.max, b.food + (b.thorn ? 3 : 2) * (b.hardy ? Math.max(1, grow) : grow));
     });
     state.pickups = state.pickups.filter((q) => q.k === "berry").slice(-30).concat(state.pickups.filter((q) => q.k !== "berry").slice(-12));
     if (state.day % 3 === 0) state.dens.forEach((d) => d.lvl++);
+    if (state.day % 4 === 0) addDen(state, rng);
     // tomorrow's weather, and a disaster every third day
     const ws = ["sunny", "sunny", "rain", "wind", "heat", "cold", "rainbow"];
-    state.weather = ws[Math.floor(rng() * ws.length)];
+    state.weather = state.day + 1 > DAYS - 3 ? "winter" : ws[Math.floor(rng() * ws.length)];
     const ds = Object.keys(DISASTERS);
     state.disaster = (state.day + 1) % 3 === 0 ? ds[Math.floor(rng() * ds.length)] : null;
     if (state.disaster === "wildfire" && state.weather === "rain") state.weather = "sunny";
@@ -665,7 +674,7 @@ function pub(state) {
         critters: state.critters.map((c) => [c.id, c.s, r1(c.x), r1(c.y), c.hp, c.max, c.carry, (c.snared !== null ? 1 : 0) | (c.safe > state.t ? 2 : 0) | (c.young ? 4 : 0)]),
         preds: state.preds.map((b) => [b.id, b.kind, r1(b.x), r1(b.y)]),
         dens: state.dens,
-        bushes: state.bushes.map((b) => ({ id: b.id, x: b.x, y: b.y, food: b.food, thorn: b.thorn, tree: b.tree, grow: Math.max(0, b.ready - state.day) })),
+        bushes: state.bushes.map((b) => ({ id: b.id, x: b.x, y: b.y, food: b.food, old: !b.tree && b.left <= 6, hardy: b.hardy, thorn: b.thorn, tree: b.tree, grow: Math.max(0, b.ready - state.day) })),
         scenery: state.scenery,
         items: state.items.filter((it) => it.k !== "snare").map((it) => ({ id: it.id, k: it.k, s: it.s, x: it.x, y: it.y, x2: it.x2, y2: it.y2, hp: it.hp, off: it.k === "herb" && it.ready > state.day })),
         pickups: state.pickups.map((q) => [q.id, q.k, q.x, q.y]),
