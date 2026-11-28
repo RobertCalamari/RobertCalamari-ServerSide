@@ -27,6 +27,27 @@ const out = {
     "pack rip": avg(() => GAMES.pack.run(rng).mult),
     "loot case": avg(() => GAMES.cases.run(rng).mult),
     "scratch-off": avg(() => GAMES.scratch.run(rng).mult),
+    "keno 1 pick": avg(() => GAMES.keno.run(rng, [7]).mult),
+    "keno 5 picks": avg(() => GAMES.keno.run(rng, [1, 9, 17, 25, 33]).mult),
+    "keno 10 picks": avg(() => GAMES.keno.run(rng, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]).mult),
+    "jackpot slots (base game, pot not counted)": avg(() => GAMES.jackpot.run(rng).mult),
+    "jackpot hit rate (1 in)": Math.round(1 / avg(() => (GAMES.jackpot.run(rng).out.jackpot ? 1 : 0))),
+    "video poker (hold pairs+, else nothing)": avg(() => {
+        const h = GAMES.vpoker.start(rng);
+        const r = h.me.map(C.rank);
+        const hold = [0, 1, 2, 3, 4].filter((i) => r.filter((x) => x === r[i]).length >= 2);
+        return GAMES.vpoker.act(h, { m: "draw", hold }).mult;
+    }),
+    "tower med, 3 floors": avg(() => {
+        let h = GAMES.tower.start(rng, "med");
+        for (let f = 0; f < 3 && !h.done; f++) h = GAMES.tower.act(h, { m: "door", i: 0 }, rng);
+        return h.done ? h.mult : GAMES.tower.act(h, { m: "cash" }, rng).mult;
+    }),
+    "road hard, 4 lanes": avg(() => {
+        let h = GAMES.road.start(rng, "hard");
+        for (let f = 0; f < 4 && !h.done; f++) h = GAMES.road.act(h, { m: "step" }, rng);
+        return h.done ? h.mult : GAMES.road.act(h, { m: "cash" }, rng).mult;
+    }),
     "horse fav": avg(() => GAMES.horses.run(rng, 0).mult),
     "horse long": avg(() => GAMES.horses.run(rng, 5).mult),
     "craps pass": avg(() => GAMES.craps.run(rng, "pass").mult),

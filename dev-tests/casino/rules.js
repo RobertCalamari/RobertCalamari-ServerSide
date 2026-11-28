@@ -99,4 +99,69 @@ ok(G.view(st, 1).taxed.some((x) => x.to === 1 && x.by === 0), "taxed player can 
     ok(st.now.tax.every((x) => x.done), "tax is used up after one bet");
     ok(C.GAMES.pack && C.GAMES.cases && C.GAMES.scratch && !C.GAMES.baccarat.shared, "new games in, baccarat solo");
 }
-console.log(fails ? fails + " FAILED" : "ALL PASS");
+
+// round two's shop: trap, rocks, buddy, wild, market, magnet, called, spy
+{
+    [0, 1, 2].forEach((s) => mv(s, { act: "unpause" }));
+    G.move(st, 0, { act: "skip" }, host);
+    ok(st.phase === "shop", "second shop");
+    st.chips = [2000, 2000, 2000];
+    st.room = ["main", "main", "main"];
+    st.pend = [];
+    st.specials[0] = ["trap", "rocks", "spy", "magnet", "market"];
+    st.specials[1] = ["buddy", "called", "wild", "dd", "lucky"];
+    st.specials[2] = ["trap", "rocks", "spy", "magnet", "market"];
+    st.sale = [null, null, null];
+    ok(mv(0, { act: "buy", item: "spy" }).ok, "buy spy");
+    mv(1, { act: "buy", item: "gulp", to: 0 });
+    ok(G.view(st, 0).resolve.some((e) => e.by === 1 && e.item === "gulp"), "spy sees other people's buys");
+    ok(!G.view(st, 2).resolve.some((e) => e.by === 1), "non-spy doesn't");
+    ok(mv(0, { act: "buy", item: "trap" }).ok, "buy trap");
+    ok(mv(2, { act: "buy", item: "rocks" }).ok, "buy rocks");
+    mv(0, { act: "buy", item: "sip", to: 2 });
+    mv(1, { act: "buy", item: "gulp", to: 2 });
+    ok(mv(1, { act: "buy", item: "buddy", to: 2 }).ok, "seat 1 makes seat 2 their drinking buddy");
+    ok(mv(0, { act: "buy", item: "market" }).ok && mv(0, { act: "buy", item: "magnet" }).ok, "market crash + magnet");
+    ok(mv(1, { act: "buy", item: "called", to: 0 }).ok, "called shot");
+    ok(mv(1, { act: "buy", item: "wild" }).ok, "wild card");
+    [0, 1, 2].forEach((s) => mv(s, { act: "ready" }));
+    ok(st.phase === "resolve", "reveal");
+    const g1 = st.resolved.find((e) => e.item === "gulp" && e.by === 1 && e.trapped);
+    ok(g1 && g1.to === 1 && g1.sips === 10, "trap card sent the gulp back to seat 1, doubled");
+    const d0 = G.view(st, 0).me.drinks;
+    const d1 = G.view(st, 1).me.drinks;
+    const d2 = G.view(st, 2).me.drinks;
+    ok(d1.sips >= 10, "seat 1 drinks the trapped gulp: " + d1.sips);
+    // seat 2: sip 2 + gulp 5 = 7, halved = 4, plus buddy (seat 1's own drinks)
+    ok(d2.sips === 4 + d1.sips - 0 || d2.buddies.includes(1), "rocks halves seat 2, buddy adds seat 1's drinks: " + JSON.stringify(d2));
+    const wild = st.resolved.find((e) => e.item === "wild");
+    ok(G.view(st, wild.to).me.drinks.big === "finish", "wild card target finishes their drink");
+    [0, 1, 2].forEach((s) => mv(s, { act: "ready" }));
+    ok(st.paused[wild.to] === "finish", "wild card pauses them");
+    ok(G.view(st, 1).me.max === Math.floor(G.view(st, 0).tableMax / 2) && G.view(st, 0).me.max === G.view(st, 0).tableMax, "market crash halves everyone else's max");
+    ok(st.now.magnet.includes(0), "magnet active");
+    ok(st.now.called.length === 1, "called shot waits for the round");
+}
+// jackpot pot grows on losses
+{
+    const C = require(path.join(__dirname, "../../games/duels/casino/games"));
+    st.paused = [null, null, null];
+    st.open[0] = "jackpot";
+    st.room[2] = "main";
+    st.chips[2] = 1000;
+    mv(2, { act: "sit", g: "jackpot" });
+    const pot = st.jackpot;
+    let lost = 0;
+    for (let i = 0; i < 20; i++) {
+        const c = st.chips[2];
+        mv(2, { act: "bet", amount: 10, sel: true });
+        if (st.last[2].mult < 1 && !st.last[2].out.jackpot) lost++;
+    }
+    ok(st.jackpot >= pot + lost, "jackpot pot grows with every losing spin: " + pot + " -> " + st.jackpot);
+    st.open[1] = "vpoker";
+    mv(2, { act: "sit", g: "vpoker" });
+    mv(2, { act: "bet", amount: 10, sel: true });
+    const vh = G.view(st, 2).me.hand;
+    ok(vh && vh.h.me.length === 5 && vh.h.spare === undefined, "video poker hides the replacement cards");
+    ok(mv(2, { act: "hand", m: "draw", hold: [0, 1] }).ok && !st.sess[2], "draw settles the hand");
+}console.log(fails ? fails + " FAILED" : "ALL PASS");

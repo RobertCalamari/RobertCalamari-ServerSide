@@ -100,6 +100,41 @@ const SCRATCH = [
     { pay: 1, p: 0.14 }, { pay: 2, p: 0.06 }, { pay: 5, p: 0.035 }, { pay: 25, p: 0.008 }, { pay: 100, p: 0.0015 }, { pay: 1000, p: 0.0001 },
 ];
 const SCRATCH_SYMS = ["🍺", "🍷", "🥃", "🍸", "🍾", "💰"];
+// Keno: 40 numbers, 10 drawn. KENO[picks][hits] = return. Every pick count returns ~90%; the top prize is capped at 10,000×
+const KENO = {"1":{"1":3.6},"2":{"1":0.7,"2":11},"3":{"2":1.9,"3":53},"4":{"2":0.6,"3":7.4,"4":210},"5":{"3":1.5,"4":30,"5":1280},"6":{"3":0.5,"4":6.8,"5":140,"6":7280},"7":{"4":2.4,"5":46,"6":1350,"7":10000},"8":{"4":0.9,"5":12,"6":230,"7":8460,"8":10000},"9":{"5":4.4,"6":88,"7":2430,"8":10000,"9":10000},"10":{"5":2.1,"6":32,"7":630,"8":10000,"9":10000,"10":10000}};
+// Video Poker, Jacks or Better (9/6)
+const VP = [["Royal flush", 800], ["Straight flush", 50], ["Four of a kind", 25], ["Full house", 9], ["Flush", 6], ["Straight", 4], ["Three of a kind", 3], ["Two pair", 2], ["Jacks or better", 1]];
+function vpHand(cards) {
+    const r = cards.map(rank).sort((a, b) => a - b);
+    const flush = cards.every((c) => Math.floor(c / 13) === Math.floor(cards[0] / 13));
+    const uniq = [...new Set(r)];
+    const wheel = uniq.length === 5 && r.join() === "0,1,2,3,12";
+    const straight = uniq.length === 5 && (r[4] - r[0] === 4 || wheel);
+    const counts = Object.values(r.reduce((a, x) => ((a[x] = (a[x] || 0) + 1), a), {})).sort((a, b) => b - a);
+    if (straight && flush) return r[0] === 8 ? 0 : 1;
+    if (counts[0] === 4) return 2;
+    if (counts[0] === 3 && counts[1] === 2) return 3;
+    if (flush) return 4;
+    if (straight) return 5;
+    if (counts[0] === 3) return 6;
+    if (counts[0] === 2 && counts[1] === 2) return 7;
+    if (counts[0] === 2 && r.some((x, i) => x >= 9 && r.indexOf(x) !== r.lastIndexOf(x))) return 8;
+    return -1;
+}
+const TOWER = { easy: 4, med: 3, hard: 2 }; // doors per floor, one is a trap
+const TOWER_FLOORS = 8;
+const towerMult = (doors, floors) => (floors ? r2(0.97 * Math.pow(doors / (doors - 1), floors)) : 1);
+const ROAD = { easy: 0.08, med: 0.16, hard: 0.3 }; // chance each lane gets you
+const ROAD_LANES = 12;
+const roadMult = (p, lanes) => (lanes ? r2(0.97 / Math.pow(1 - p, lanes)) : 1);
+// Jackpot Slots: 🏆🏆🏆 wins the progressive pot (about 1 in 20,000 spins)
+const JP_SYMS = ["🍒", "🔔", "⭐", "💎", "🏆"];
+const JP_W = [40, 30, 18, 8.3, 3.7];
+const JP_3 = [5, 10, 20, 50, 0];
+function jpPay(reels) {
+    if (reels[0] === reels[1] && reels[1] === reels[2]) return reels[0] === 4 ? { mult: 0, jackpot: true } : { mult: JP_3[reels[0]] };
+    return { mult: reels.filter((x) => x === 0).length === 2 ? 0.5 : 0 };
+}
 const CRASH_K = 0.00008; // multiplier = e^(k * ms): 2× at ~8.7s, 10× at ~29s
 
 const minesMult = (k, safe) => {
@@ -258,6 +293,29 @@ const GAMES = {
             return { out: { grid, win }, mult: win === null ? 0 : SCRATCH[win].pay, text: win === null ? "No match" : "Matched three " + SCRATCH_SYMS[win] + " for " + SCRATCH[win].pay + "×" };
         },
     },
+    keno: {
+        name: "Keno", icon: "🎱", kind: "instant", blurb: "Pick 1–10 numbers out of 40. Ten get drawn. Hit all 10 for 10,000×.",
+        sel: (s) => (Array.isArray(s) && s.length >= 1 && s.length <= 10 && new Set(s).size === s.length && s.every((n) => Number.isInteger(n) && n >= 1 && n <= 40) ? s.slice().sort((a, b) => a - b) : null),
+        run(rng, picks) {
+            const drawn = [];
+            while (drawn.length < 10) {
+                const n = 1 + Math.floor(rng() * 40);
+                if (!drawn.includes(n)) drawn.push(n);
+            }
+            const hits = picks.filter((n) => drawn.includes(n)).length;
+            const mult = KENO[picks.length][hits] || 0;
+            return { out: { drawn, picks, hits }, mult, text: hits + " of " + picks.length + " hit" };
+        },
+    },
+    jackpot: {
+        name: "Jackpot Slots", icon: "🏆", kind: "instant", blurb: "Small wins, and 🏆🏆🏆 takes the whole progressive pot. Every losing spin feeds it.",
+        sel: () => true,
+        run(rng) {
+            const reels = [0, 1, 2].map(() => pickW(rng, JP_W));
+            const p = jpPay(reels);
+            return { out: { reels, jackpot: !!p.jackpot }, mult: p.mult, text: reels.map((x) => JP_SYMS[x]).join(" ") };
+        },
+    },
     horses: {
         name: "Horse Race", icon: "🏇", kind: "instant", blurb: "Six horses. Back a favourite or a long shot.",
         sel: (s) => (Number.isInteger(s) && s >= 0 && s < HORSES.length ? s : null),
@@ -385,6 +443,52 @@ const GAMES = {
             return null;
         },
     },
+    vpoker: {
+        name: "Video Poker", icon: "🎮", kind: "hand", blurb: "Jacks or Better. Hold what you like, draw once. Royal flush pays 800×.",
+        sel: () => true,
+        // the replacement cards are dealt up front and kept hidden
+        start(rng) {
+            const c = deal(rng, 10);
+            return { me: c.slice(0, 5), spare: c.slice(5), mult: 0 };
+        },
+        act(h, m) {
+            if (m.m !== "draw" || !Array.isArray(m.hold) || !m.hold.every((i) => Number.isInteger(i) && i >= 0 && i < 5)) return null;
+            let k = 0;
+            const me = h.me.map((c, i) => (m.hold.includes(i) ? c : h.spare[k++]));
+            const v = vpHand(me);
+            return { ...h, me, held: m.hold, done: true, hand: v >= 0 ? VP[v][0] : "Nothing", mult: v >= 0 ? VP[v][1] : 0 };
+        },
+    },
+    tower: {
+        name: "Tower Climb", icon: "🗼", kind: "hand", blurb: "Pick a door on each floor. One is a trap. Climb higher, win more, cash out any time.",
+        sel: (s) => (TOWER[s] ? s : null),
+        start(rng, d) {
+            return { d, doors: TOWER[d], path: [], mult: 1 };
+        },
+        act(h, m, rng) {
+            if (m.m === "cash") return { ...h, done: true, mult: towerMult(h.doors, h.path.length) };
+            if (m.m !== "door" || !Number.isInteger(m.i) || m.i < 0 || m.i >= h.doors) return null;
+            const trap = Math.floor(rng() * h.doors);
+            const path = h.path.concat({ pick: m.i, trap });
+            if (m.i === trap) return { ...h, path, done: true, boom: true, mult: 0 };
+            const mult = towerMult(h.doors, path.length);
+            return { ...h, path, mult, done: path.length >= TOWER_FLOORS };
+        },
+    },
+    road: {
+        name: "Road Crossing", icon: "🐔", kind: "hand", blurb: "Step across lane by lane. Each lane is worth more. Get hit and it's gone.",
+        sel: (s) => (ROAD[s] ? s : null),
+        start(rng, d) {
+            return { d, p: ROAD[d], lanes: 0, mult: 1 };
+        },
+        act(h, m, rng) {
+            if (m.m === "cash") return { ...h, done: true, mult: roadMult(h.p, h.lanes) };
+            if (m.m !== "step") return null;
+            if (rng() < h.p) return { ...h, lanes: h.lanes + 1, done: true, splat: true, mult: 0 };
+            const lanes = h.lanes + 1;
+            return { ...h, lanes, mult: roadMult(h.p, lanes), done: lanes >= ROAD_LANES };
+        },
+    },
     poker: {
         name: "Three Card Poker", icon: "♦️", kind: "hand", blurb: "Three cards vs the dealer. Raise to play, or fold. Dealer needs a queen high.",
         sel: () => true,
@@ -419,4 +523,5 @@ for (const g of Object.values(GAMES))
 module.exports = {
     GAMES, r2, rank, bjTotal, bacTotal, poker3, cmp, HAND3, RED, PLINKO, WHEEL, SLOTS, SLOT_W, SLOT_3, slotPay,
     HORSES, HORSE_PAY, MINES, CRASH_K, minesMult, hiloMult, PACK, CASE, SCRATCH, SCRATCH_SYMS,
+    KENO, VP, vpHand, TOWER, TOWER_FLOORS, towerMult, ROAD, ROAD_LANES, roadMult, JP_SYMS, JP_W, JP_3, jpPay,
 };
