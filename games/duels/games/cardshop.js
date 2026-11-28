@@ -27,7 +27,7 @@ const CFG = {
     pcts: [80, 100, 120, 150],
     priceScale: 2.5, // multiplies every set's pack price (and so card values and customer budgets)
     packEV: 0.95, // a pack's expected card value / its price at the open
-    hitSlot: true, // the last card of every pack is Rare or better
+    hitSlot: false, // true: the last card of every pack is Rare or better
     hitShare: [0, 0, 72, 21, 6, 1], // odds for that card by rarity (C, U, R, Holo, Ultra, Secret)
     rarShape: [0.07, 0.14, 0.38, 0.75, 2, 5], // card value by rarity, relative (null = sets.js values)
     demandTilt: 0.25,
@@ -38,7 +38,7 @@ const CFG = {
     ms: { buy: 60000, buy1: 80000, setup: 45000, setup1: 60000, sell: 45000, lastIn: 9000, report: 12000, offer: 8000, counter: 4000, tick: 1000 },
     counters: 2, // haggle rounds you get per customer
     queue: 3, // customers waiting at one booth before others give up
-    actions: { base: 2, max: 5, carry: 1, packs: 3 }, // actions per day; unused carry over (up to carry); one action buys up to `packs` packs
+    actions: { base: 2, max: 5, carry: 1, packs: 1 }, // actions per day; unused carry over (up to carry); one action buys up to `packs` packs
     fish: { ms: 15000, minMs: 3000, pack: 70, boot: 22, golden: 8, bootCash: 5 }, // broke? go fishing once a day: catch odds
     challenge: { prize: 20, sales: 25 }, // daily challenge prize; the "sell $X" target is sales x priceScale
     vip: { at: 4000, mult: 2, min: 12, max: 60, cardP: 0.5 }, // the VIP arrives 4s into Doors open; bounty = mult x cheapest qualifying market, between min and max (x priceScale)
@@ -104,12 +104,17 @@ function feed(state, e) {
     if (state.feed.length > 40) state.feed.shift();
 }
 
+// untimed (the default): shopping, setup and the report wait until everyone is ready; the doors-open day always runs its clock
 function phase(state, ctx, name, ms) {
     state.phase = name;
-    state.deadline = ctx.now() + ms;
     state.ready = state.cash.map(() => false);
     const tag = state.day + name;
     state.tag = tag;
+    if (!state.timed && name !== "sell") {
+        state.deadline = null;
+        return;
+    }
+    state.deadline = ctx.now() + ms;
     const next = { buy: startSetup, setup: startSell, sell: endSell, report: startDay }[name];
     ctx.later(ms, () => state.tag === tag && next(state, ctx));
 }
@@ -619,6 +624,12 @@ function move(state, s, p, ctx) {
         if (state.ready.every(Boolean)) ({ buy: startSetup, setup: startSell, report: startDay })[ph](state, ctx);
         return { ok: true };
     }
+    if (p.act === "next") {
+        if (!ctx.host) return { error: "Only the host can move everyone on." };
+        if (!["buy", "setup", "report"].includes(ph)) return { error: "Nothing to finish right now." };
+        ({ buy: startSetup, setup: startSell, report: startDay })[ph](state, ctx);
+        return { ok: true };
+    }
     if (p.act === "rip") return rip(state, s, p.p, ctx);
     if (p.act === "offer") return answer(state, s, p, ctx);
     if (p.act === "fish") return X.fish(state, s, p, ctx, CFG, cheapest(state), feed);
@@ -760,10 +771,12 @@ module.exports = {
     kind: "sim",
     quick: false,
     players: [2, 6],
+    options: { timer: [false, true] },
     CFG,
-    init({ rng, ctx, players = 2 }) {
+    init({ rng, ctx, players = 2, options = {} }) {
         const n = players;
         const state = {
+            timed: options.timer === true,
             day: 0,
             phase: "buy",
             deadline: null,

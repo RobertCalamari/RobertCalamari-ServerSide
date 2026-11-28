@@ -1,0 +1,34 @@
+// Vending Simulator: untimed by default (phases wait for Ready, host can move on), one pack per action, no guaranteed hit
+const G = require("../../games/duels/games/cardshop.js");
+const M = require("../../games/duels/cardshop/market.js");
+let fails = 0;
+const ok = (name, c) => {
+    console.log((c ? "PASS " : "FAIL ") + name);
+    if (!c) fails++;
+};
+let now = 1e12;
+const timers = [];
+const rng = Math.random;
+const ctx = { rng, now: () => now, later: (ms, fn) => timers.push({ t: now + ms, fn }) };
+const host = { ...ctx, host: true };
+const st = G.init({ rng, ctx, players: 3 });
+const mv = (s, p, c = ctx) => G.move(st, s, p, c);
+ok("default start option is timer off", G.options.timer[0] === false && st.timed === false);
+ok("buy phase has no deadline and no timer", st.phase === "buy" && st.deadline === null && !timers.length);
+ok("pack bundles gone", G.CFG.actions.packs === 1 && !mv(0, { act: "pack", p: st.stock[0].p, n: 2 }).ok);
+mv(0, { act: "ready" });
+mv(1, { act: "ready" });
+ok("waits for the last player", st.phase === "buy");
+mv(2, { act: "ready" });
+ok("everyone ready -> setup, still untimed", st.phase === "setup" && st.deadline === null);
+ok("non-host can't force", !!mv(1, { act: "next" }).error && st.phase === "setup");
+ok("host forces doors open", mv(0, { act: "next" }, host).ok && st.phase === "sell");
+ok("doors-open day keeps its clock", st.deadline !== null);
+ok("host can't skip selling", !!mv(0, { act: "next" }, host).error);
+const timed = G.init({ rng, ctx, players: 2, options: { timer: true } });
+ok("timer on: buy phase has a deadline", timed.deadline !== null);
+ok("no Rare-or-better guarantee", G.CFG.hitSlot === false);
+let noHit = 0;
+for (let i = 0; i < 400; i++) if (M.openPack(rng, st.active[0], G.CFG.packSize).every((k) => M.CARDS[k >> 1].r < 2)) noHit++;
+ok("plenty of packs have no Rare (" + noHit + "/400)", noHit > 40);
+process.exit(fails ? 1 : 0);

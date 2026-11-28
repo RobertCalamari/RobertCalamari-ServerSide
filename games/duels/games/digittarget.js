@@ -238,6 +238,7 @@ module.exports = {
     quick: true,
     players: [1, 10],
     solve,
+    makeRound,
     evaluate,
     options: { timer: [true, false] },
     init({ rng, ctx, options = {}, players = 2 }) {

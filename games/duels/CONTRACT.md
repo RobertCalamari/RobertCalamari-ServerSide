@@ -34,7 +34,8 @@ module.exports = {
   `ranked(values, better, text)` → `{ winner, places, text }` (null values rank last). `text` ≤ 140 chars, no names
   (the client shows names and the placement list).
 - Solo: a game with `players: [1, n]` can be started by one person alone in a Game Night room (gauntlets still need two).
-  For one player, `result` may add `score` (a number); the client keeps it as a personal best.
+  For one player, `result` may add `score` (a number); the client keeps it as a personal best. Higher is better unless it also
+  sets `low: true` (times); `unit` (e.g. `"s"`) is shown after the number.
 - The room turns game seats back into room seats: session wins, gauntlet score and the `places` the client gets are per room seat.
 - `{ ok: true, quiet: true }` from `move` skips the broadcast (use for no-op updates).
 - Start options: the host may send `duel:start { game, options }`. Only keys the game declares in `options` reach
