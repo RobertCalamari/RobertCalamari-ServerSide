@@ -894,10 +894,15 @@ function rippleBot(v, k) {
         k.mem.round = v.round;
         const exp = [0, 0, 0, 0, 0];
         st.news[v.round - 1].eff.forEach((e) => (exp[e.co] += k.level === "hard" ? e.v : e.v * r(k, 0.2, 1.5)));
-        if (k.level === "hard") v.me.tips.forEach((t) => (exp[t.to] += t.w * exp[t.from]));
+        // hard has been reading the charts: it mostly knows each pattern. Easy just rides the last move
+        const P = G("ripple").PATTERNS;
+        st.moves.forEach((m, i) => {
+            const pat = m.follow === undefined ? P[m.p][1][(m.at + v.round - 1) % P[m.p][1].length] : [1, 1.5, 0.5, -1][m.f] * (st.lastMove[m.follow] || 0);
+            exp[i] += k.level === "hard" ? (k.rng() < 0.75 ? pat : 0) : 0.5 * (st.lastMove[i] || 0);
+        });
         v.price.forEach((p, i) => {
             if (!p) exp[i] = -9;
-            else exp[i] += (k.level === "hard" ? 0.15 * (st.fair[i] - p) / p : 0) + r(k, -0.03, 0.03);
+            else exp[i] += r(k, -0.03, 0.03);
         });
         k.mem.exp = exp;
         k.mem.steps = ["sell", "card", "buy", "ready"];
@@ -923,9 +928,11 @@ function rippleBot(v, k) {
             const type = v.me.hand[i].type;
             const live = range(5).filter((c) => v.price[c]);
             const best = live.sort((a, b) => exp[b] - exp[a]);
-            const co = type === "hype" ? best[0] : type === "rumor" ? best[best.length - 1] : type === "freeze" ? (best.find((c) => v.me.hold[c] > 0 && exp[c] < 0) ?? best[best.length - 1]) : undefined;
+            const co = type === "hype" ? best[0] : type === "rumor" ? best[best.length - 1] : type === "freeze" ? (best.find((c) => v.me.hold[c] > 0 && exp[c] < 0) ?? best[best.length - 1]) : best[0];
             return { move: { act: "card", i, co }, wait };
         }
+        // no cards: sometimes buy one for next round
+        if (i < 0 && v.me.cash > 500 && k.rng() < (k.level === "hard" ? 0.4 : 0.2)) return { move: { act: "buycard", type: k.level === "hard" ? "hype" : pick(k, ["hype", "rumor", "freeze", "tip"]) }, wait };
         return null;
     }
     if (step === "buy") {

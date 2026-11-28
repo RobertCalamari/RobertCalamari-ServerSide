@@ -5,6 +5,7 @@
 const { rank, suit, label, isCard, deck, take, pause } = require("../deck");
 const { ranked } = require("../rank");
 const TARGET = 300;
+const SHORT = 200;
 const TURN_MS = 60000;
 const AFK_MS = 10000;
 const SCORE_MS = 9000;
@@ -210,8 +211,9 @@ module.exports = {
     findMeld,
     value,
     meldPoints,
-    init({ rng, ctx, players = 2 }) {
-        const state = { n: players, phase: "draw", hand: 0, dealer: Math.floor(rng() * players), turn: 0, deadline: 0, tick: 0, hands: [], stock: [], discard: [], melds: [], nextId: 0, must: null, took: null, didMeld: false, scores: new Array(players).fill(0), target: TARGET, summary: null, log: null, afk: new Array(players).fill(0) };
+    options: { length: ["full", "short"] },
+    init({ rng, ctx, players = 2, options = {} }) {
+        const state = { n: players, phase: "draw", hand: 0, dealer: Math.floor(rng() * players), turn: 0, deadline: 0, tick: 0, hands: [], stock: [], discard: [], melds: [], nextId: 0, must: null, took: null, didMeld: false, scores: new Array(players).fill(0), target: options.length === "short" ? SHORT : TARGET, summary: null, log: null, afk: new Array(players).fill(0) };
         deal(state, ctx);
         return state;
     },

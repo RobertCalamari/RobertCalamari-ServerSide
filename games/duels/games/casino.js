@@ -96,6 +96,11 @@ function feed(state, s, text, kind) {
     state.feed.push({ n: ++state.feedNo, s, text, kind });
     if (state.feed.length > FEED) state.feed.shift();
 }
+// the big moments: these pop up on every phone and the TV
+function shout(state, s, text, kind) {
+    state.shouts.push({ n: ++state.feedNo, s, text, kind });
+    if (state.shouts.length > 6) state.shouts.shift();
+}
 
 const net = (state, s) => state.chips[s] - state.owed[s];
 
@@ -109,6 +114,7 @@ function startRound(state, ctx) {
     const open = keep.concat(pickN(ctx.rng, Object.keys(GAMES).filter((g) => !prev.includes(g)), TABLES - keep.length));
     state.open = open;
     state.hot = open[Math.floor(ctx.rng() * open.length)];
+    shout(state, null, "🔥 Round " + (state.round + 1) + "! Hot Table: " + GAMES[state.hot].name + " pays +20%", "hot");
     state.at = seats(state.n).map(() => null);
     state.sess = seats(state.n).map(() => null);
     state.now = state.next;
@@ -124,6 +130,15 @@ function startRound(state, ctx) {
     open.filter((g) => GAMES[g].shared).forEach((g) => openBets(state, g, ctx, rid));
     feed(state, null, "Round " + (state.round + 1) + ": the floor is open", "info");
     ctx.later(state.cfg.play * 1000, () => state.rid === rid && state.phase === "play" && endPlay(state, ctx));
+    // halfway through, the Hot Table jumps somewhere else: everyone rush!
+    ctx.later(Math.round(state.cfg.play * 500), () => {
+        if (state.rid !== rid || state.phase !== "play") return;
+        const others = state.open.filter((g) => g !== state.hot);
+        if (!others.length) return;
+        state.hot = others[Math.floor(ctx.rng() * others.length)];
+        shout(state, null, "🔥 Hot Table rush! " + GAMES[state.hot].name + " now pays +20%", "hot");
+        feed(state, null, "The Hot Table moved to " + GAMES[state.hot].name, "info");
+    });
 }
 
 function endPlay(state, ctx) {
@@ -354,6 +369,8 @@ function settle(state, s, g, stake, ret, out, text) {
     state.last[s] = { n: ++state.lastNo, g, stake, back, won, mult: stake ? r2(back / stake) : 0, out, text };
     if (won >= 40 || (stake && back / stake >= 5)) feed(state, s, N(s) + " won " + won + " at " + GAMES[g].name + " (" + r2(back / stake) + "×)", "good");
     else if (won <= -40) feed(state, s, N(s) + " lost " + -won + " at " + GAMES[g].name, "bad");
+    if (won >= 100 || (stake >= 10 && back / stake >= 10)) shout(state, s, "💰 " + N(s) + " just won " + won + " at " + GAMES[g].name + (stake ? " (" + r2(back / stake) + "×)" : "") + "!", "good");
+    else if (won <= -100) shout(state, s, "💸 " + N(s) + " just lost " + -won + " at " + GAMES[g].name, "bad");
     if (state.room[s] === "high" && state.chips[s] < HIGH.min) {
         state.room[s] = "main";
         feed(state, s, N(s) + " got walked out of the High Roller room", "bad");
@@ -361,6 +378,7 @@ function settle(state, s, g, stake, ret, out, text) {
     if (state.chips[s] < MIN && !state.broke[s]) {
         state.broke[s] = true;
         feed(state, s, N(s) + " is broke! Shot time 🥃", "bad");
+        shout(state, s, "🥃 " + N(s) + " is broke! Shot time!", "bad");
     }
     return won;
 }
@@ -428,6 +446,7 @@ function bet(state, s, p, ctx) {
                 state.jackpot = Math.max(JACKPOT_SEED, state.jackpot - extra);
                 r.text = "🏆 JACKPOT! " + extra + " chips";
                 feed(state, s, "🏆 " + N(s) + " HIT THE JACKPOT for " + extra + "!", "good");
+                shout(state, s, "🏆 " + N(s) + " HIT THE JACKPOT for " + extra + "!", "jackpot");
             } else if (r.mult < 1) state.jackpot += Math.ceil(amount * 0.1);
             r.out.pot = state.jackpot;
         }
@@ -584,6 +603,7 @@ function pub(state, seat) {
         last: state.last,
         paused: state.paused,
         feed: state.feed,
+        shouts: state.shouts,
         banned: state.now.ban,
         // who has a tax collector on them right now (still waiting on their next bet), and who's jinxed
         taxed: state.now.tax.filter((x) => !x.done).map((x) => ({ by: x.by, to: x.to })),
@@ -621,7 +641,7 @@ module.exports = {
             at: seats(n).map(() => null), sess: seats(n).map(() => null), last: seats(n).map(() => null), paused: seats(n).map(() => null),
             inv: seats(n).map(() => ({ dd: 0, mirror: 0 })), room: seats(n).map(() => "main"), resolveDone: [], spies: [], jackpot: JACKPOT_SEED, stats: seats(n).map(() => ({ played: 0, wagered: 0, best: 0, bestAt: null, spent: 0, bought: 0, mean: 0 })),
             now: blank(), next: blank(), start: new Array(n).fill(START), pend: [], pendNo: 0, resolved: [], specials: [], sale: [], shopDone: [],
-            feed: [], feedNo: 0, lastNo: 0,
+            feed: [], shouts: [], feedNo: 0, lastNo: 0,
         };
     },
     view(state, seat) {

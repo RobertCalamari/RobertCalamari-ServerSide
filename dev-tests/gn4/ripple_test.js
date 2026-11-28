@@ -26,10 +26,10 @@ async function play(n, timeoutRounds) {
   ps[0].emit("duel:start", { game: "ripple" });
   await until(() => ps.every((p) => p.last.match && p.last.match.game === "ripple"));
   let v = V(ps[0]);
-  check(n + "p: start 1000 cash, 5 companies, 3 cards", v.me.cash === 1000 && v.companies.length === 5 && v.price.every((p) => p >= 40 && p <= 120) && v.me.hand.length === 3);
-  check(n + "p: view hides links/big/others", v.links === null && v.big === null && !("hold" in v) && leakFree({ ...v, me: null }, "view"));
+  check(n + "p: start 1000 cash, 5 companies, no free cards", v.me.cash === 1000 && v.companies.length === 5 && v.price.every((p) => p >= 40 && p <= 120) && v.me.hand.length === 0);
+  check(n + "p: view hides patterns/big/others", v.patterns === null && v.big === null && !("hold" in v) && leakFree({ ...v, me: null }, "view"));
   const t = tv.last.match.tv;
-  check(n + "p: tv has no secrets", t && !t.me && t.links === null && leakFree(t, "tv"));
+  check(n + "p: tv has no secrets", t && !t.me && t.patterns === null && leakFree(t, "tv"));
   // invalid moves
   const p0 = v.price[0];
   check("overspend refused", !(await mv(ps[0], { act: "trade", co: 0, qty: Math.floor(1000 / p0) + 1 })).ok);
@@ -45,14 +45,16 @@ async function play(n, timeoutRounds) {
   await wait(100);
   check("others can't see p0 holdings", JSON.stringify(V(ps[1]).me.hold) === "[0,0,0,0,0]" && !JSON.stringify(V(ps[1])).includes('"hold":[3'));
   check("worth unchanged by trading at price", V(ps[1]).worth[0] === 1000);
-  // card: p1 plays its first card on co 2 (or tip)
+  // card: p1 buys a tip and plays it on co 2
+  check("buying a card costs cash", (await mv(ps[1], { act: "buycard", type: "tip" })).ok && V(ps[1]).me.cash === 1000 - V(ps[1]).costs.tip && V(ps[1]).me.hand.length === 1);
+  check("bad card type refused", !(await mv(ps[1], { act: "buycard", type: "nope" })).ok);
   const c1 = V(ps[1]).me.hand[0];
   const cr = await mv(ps[1], { act: "card", i: 0, co: 2 });
   check("card play ok", cr.ok);
   check("second card same round refused", !(await mv(ps[1], { act: "card", i: 1, co: 2 })).ok);
   await wait(100);
   check("card play secret to others + tv", V(ps[0]).last === null && !JSON.stringify(V(ps[0])).includes('"played":{') && !JSON.stringify(tv.last.match.tv).includes("played"));
-  if (c1.type === "tip") check("tip revealed a real link", V(ps[1]).me.tips.length === 1);
+  if (c1.type === "tip") check("tip revealed a pattern", V(ps[1]).me.tips.length === 1 && V(ps[1]).me.tips[0].co === 2 && V(ps[1]).me.tips[0].text.length > 5);
   // ready: all ready ends early
   await mv(ps[0], { act: "ready" });
   check("ready trader can't trade", !(await mv(ps[0], { act: "trade", co: 0, qty: 1 })).ok);
@@ -79,6 +81,7 @@ async function play(n, timeoutRounds) {
       if (vv.price[co]) { const q = Math.floor(vv.me.cash / vv.price[co] / 2); if (q) await mv(ps[i], { act: "trade", co, qty: q }); }
       const held = vv.me.hold.findIndex((h, c) => h && c !== co);
       if (held >= 0) await mv(ps[i], { act: "trade", co: held, qty: -vv.me.hold[held] });
+      if (r === 1) await mv(ps[i], { act: "buycard", type: "hype" });
       const k = vv.me.hand.findIndex((c) => !c.used);
       if (k >= 0 && r % 2) await mv(ps[i], { act: "card", i: k, co: vv.price.findIndex((p) => p > 0) });
       await mv(ps[i], { act: "ready" });
@@ -88,7 +91,7 @@ async function play(n, timeoutRounds) {
   const res = ps[0].last.match.result;
   v = V(ps[0]);
   check(n + "p: finished with places + text", res && res.places.filter((x) => x).length === n && res.text.length > 5, JSON.stringify(res));
-  check(n + "p: final reveals map + big trades", v.phase === "done" && v.links.length === 5 && v.links.every((l) => l.length >= 1 && l.length <= 2) && v.big.length > 0 && tv.last.match.tv.links);
+  check(n + "p: final reveals patterns + big trades", v.phase === "done" && v.patterns.length === 5 && v.patterns.every((p) => p.text) && v.big.length > 0 && tv.last.match.tv.patterns);
   check(n + "p: hist 9 points each", v.hist.every((h) => h.length === 9));
   const worths = v.worth;
   const best = worths.indexOf(Math.max(...worths));

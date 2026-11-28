@@ -94,12 +94,14 @@ function night(seed, n, style) {
                 const id = wants[Math.floor(rng() * wants.length)];
                 const r = mv(s, { act: "buy", item: id, to: (s + 1) % n });
                 if (r.ok) stats.buys++;
+                mv(s, { act: "unpause" });
                 mv(s, { act: "ready" });
             }
             now += 1000;
         } else if (st.phase === "resolve") {
             st.resolved.forEach((e) => e.to !== null && st.inv[e.to] && st.inv[e.to].dd > 0 && mv(e.to, { act: "block", id: e.id }).ok && stats.blocks++);
-            now += 21000;
+            for (let s = 0; s < n; s++) mv(s, { act: "ready" });
+            now += 2000;
         }
         timers.sort((x, y) => x.t - y.t);
         while (timers.length && timers[0].t <= now) timers.shift().fn(now);

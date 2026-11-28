@@ -4,6 +4,7 @@
 // the nil player's tricks only count as bags. Every 10 bags costs 100. First team to TARGET wins (or a team at -200 loses).
 const { rank, suit, isCard, deck, sortHand, pause } = require("../deck");
 const TARGET = 250;
+const SHORT = 150;
 const FLOOR = -200;
 const BID_MS = 30000;
 const PLAY_MS = 20000;
@@ -200,8 +201,9 @@ module.exports = {
     applyScore,
     winnerOf,
     autoBid,
-    init({ rng, ctx }) {
-        const state = { phase: "bid", hand: 0, dealer: Math.floor(rng() * 4), turn: 0, deadline: 0, tick: 0, hands: [], bids: [], tricks: [], trick: [], trickWinner: null, last: null, broken: false, scores: [0, 0], bags: [0, 0], history: [], summary: null, target: TARGET, afk: [0, 0, 0, 0], auto: null, over: false };
+    options: { length: ["full", "short"] },
+    init({ rng, ctx, options = {} }) {
+        const state = { phase: "bid", hand: 0, dealer: Math.floor(rng() * 4), turn: 0, deadline: 0, tick: 0, hands: [], bids: [], tricks: [], trick: [], trickWinner: null, last: null, broken: false, scores: [0, 0], bags: [0, 0], history: [], summary: null, target: options.length === "short" ? SHORT : TARGET, afk: [0, 0, 0, 0], auto: null, over: false };
         deal(state, ctx);
         return state;
     },
