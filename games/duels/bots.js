@@ -1305,7 +1305,6 @@ function townBot(v, k) {
     const n = st.coins.length;
     const before = range(n).map((x) => g.score(st, x).total);
     const nb = (i) => [i - st.size, i + st.size, i % st.size ? i - 1 : -1, i % st.size < st.size - 1 ? i + 1 : -1].filter((j) => j >= 0 && j < st.cells.length);
-    const tile = (j) => (st.cells[j] && st.cells[j] !== "rock" ? st.cells[j] : null);
     const opts = [];
     const lots = st.cells.map((x, i) => (x ? -1 : i)).filter((i) => i >= 0);
     for (const p of v.pool) {
@@ -1314,18 +1313,13 @@ function townBot(v, k) {
         for (const i of lots) {
             st.cells[i] = { t: p.t, o: s };
             const after = range(n).map((x) => g.score(st, x).total);
+            // coins it will make before the game ends (3 coins = 1 point), robbing included
+            const coins = (g.tileIncome(st, i) + g.victims(st, i).length * (d.steal || 0)) * left;
             st.cells[i] = null;
             const mine = after[s] - before[s];
             const theirs = range(n).filter((x) => x !== s).reduce((t, x) => t + after[x] - before[x], 0);
-            // coins a tile will make before the game ends, as points (3 coins = 1 point)
-            const around = nb(i).map(tile).filter(Boolean);
-            let coins = 0;
-            if (p.t === "farm") coins = 2 * left;
-            if (p.t === "factory") coins = 3 * left;
-            if (p.t === "shop") coins = around.filter((y) => y.t === "house").length * left;
-            if (p.t === "thief" && !around.some((y) => y.t === "police")) coins = new Set(around.filter((y) => y.o !== null && y.o !== s).map((y) => y.o)).size * left;
-            // a house next to an open lot has room to grow (a park later)
-            const room = p.t === "house" ? nb(i).filter((j) => !st.cells[j]).length * 0.15 : 0;
+            // a home next to open lots has room to grow
+            const room = d.tags.includes("home") ? nb(i).filter((j) => !st.cells[j]).length * 0.15 : 0;
             const val = mine - theirs * (k.level === "hard" ? 0.6 : 0.2) + (coins - d.cost) / 3 + room;
             opts.push({ p, i, val });
         }
