@@ -84,6 +84,13 @@ const SCENERY = { rock: "🪨", tree: "🌳", pine: "🌲", pond: "💧" };
 
 const r1 = (x) => Math.round(x * 10) / 10;
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+// how close p came to the line walked from a to b, so a quick step can't hop over a bush
+function passed(p, a, b) {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const l = dx * dx + dy * dy;
+    const k = l ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / l)) : 0;
+    return Math.hypot(p.x - (a.x + dx * k), p.y - (a.y + dy * k));
+}
 const ellipse = (x, y) => ((x - W / 2) / (W / 2 - 1)) ** 2 + ((y - H / 2) / (H / 2 - 1)) ** 2;
 const onIsland = (p) => ellipse(p.x, p.y) <= 0.96;
 const between = (rng, [a, b]) => a + rng() * (b - a);
@@ -426,17 +433,25 @@ function tick(state, ctx) {
         if (!state.critters.includes(c) || c.snared !== null) return;
         const home = state.homes[c.s];
         if (dusk) {
-            // everyone heads straight home for the night
+            // everyone heads straight home for the night and nothing happens on the way: they only drop off what they carry
             const d = dist(c, home);
             if (d > 0.4) {
                 c.x += ((home.x - c.x) / d) * Math.min(d, 0.9);
                 c.y += ((home.y - c.y) / d) * Math.min(d, 0.9);
             }
-        } else wander(state, c, rng, [0.15, 0.45]);
-        touch(state, c, rng);
+            if (c.carry && homeOf(state, c) === c.s) {
+                state.stash[c.s] += c.carry;
+                state.night[c.s].stored += c.carry;
+                c.carry = 0;
+            }
+            return;
+        }
+        const from = { x: c.x, y: c.y };
+        wander(state, c, rng, [0.15, 0.45]);
+        touch(state, c, rng, from);
     });
     // a teammate bumping into a snared critter sets it free
-    state.critters.forEach((c) => {
+    if (!dusk) state.critters.forEach((c) => {
         if (c.snared === null) return;
         const pal = state.critters.find((o) => o !== c && o.s === c.s && o.snared === null && dist(o, c) < 0.8);
         if (pal) {
@@ -446,7 +461,7 @@ function tick(state, ctx) {
     });
 }
 // everything a critter can bump into
-function touch(state, c, rng) {
+function touch(state, c, rng, from) {
     const s = c.s;
     const nt = state.night[s];
     const cap = carryCap(state, s);
@@ -471,15 +486,14 @@ function touch(state, c, rng) {
         c.cool = state.t + 6;
     }
     if (!c.young && c.carry < cap) {
-        const b = state.bushes.find((x) => x.ready <= state.day && x.food > 0 && dist(x, c) < 0.85);
-        if (b && c.cool <= state.t) {
+        const b = state.bushes.find((x) => x.ready <= state.day && x.food > 0 && passed(x, from, c) < 0.85);
+        if (b) {
             b.food--;
             c.carry++;
-            c.cool = state.t + 2;
             if (b.thorn && !perk(state, s, "hedgehog")) hurt(state, c, "thorn");
         }
     }
-    const q = state.pickups.find((x) => dist(x, c) < 0.6 && (x.k !== "berry" || (!c.young && c.carry < cap)));
+    const q = state.pickups.find((x) => passed(x, from, c) < 0.6 && (x.k !== "berry" || (!c.young && c.carry < cap)));
     if (q) {
         state.pickups.splice(state.pickups.indexOf(q), 1);
         if (q.k === "berry") c.carry++;
@@ -596,7 +610,7 @@ function startNight(state, ctx) {
             return;
         }
         if (b.ready === state.day + 1) b.food = 6;
-        else if (b.ready <= state.day) b.food = Math.min(b.max, b.food + (b.thorn ? 3 : 2) * grow);
+        else if (b.ready <= state.day) b.food = Math.min(b.max, b.food + (b.thorn ? 2 : 1) * grow);
     });
     state.pickups = state.pickups.filter((q) => q.k === "berry").slice(-30).concat(state.pickups.filter((q) => q.k !== "berry").slice(-12));
     if (state.day % 3 === 0) state.dens.forEach((d) => d.lvl++);

@@ -1403,7 +1403,7 @@ function critterBot(v, k) {
         for (let i = 0; i < 60; i++) {
             const an = k.rng() * Math.PI * 2;
             const rr = lo + k.rng() * (hi - lo);
-            const p = { x: c.x + Math.cos(an) * rr, y: c.y + Math.sin(an) * rr };
+            const p = { x: Math.floor(c.x + Math.cos(an) * rr) + 0.5, y: Math.floor(c.y + Math.sin(an) * rr) + 0.5 };
             if (!g.canPlace(k.state, p, kind, s)) return p;
         }
         return null;
