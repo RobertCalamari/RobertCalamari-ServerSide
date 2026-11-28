@@ -437,11 +437,15 @@ module.exports = {
             if (state.passed.every(Boolean)) afterReact(state, ctx);
             return { ok: true };
         }
+        // a Wait card is redeemed when its event happens: take the points, or keep it as a number card (whoever did it drinks either way)
         if (act === "convert") {
             const id = p.id;
             if (!Number.isInteger(id) || !state.hands[s].includes(id) || card(id).t !== "wait") return { error: "Pick a Wait card from your hand." };
             if (state.conv.includes(id)) return { ok: true, quiet: true };
+            const by = p.by;
+            if (!Number.isInteger(by) || by < 0 || by >= state.n) return { error: "It has to happen first. Who did it?" };
             state.conv.push(id);
+            log(state, N(s) + " cashed in " + card(id).text.toLowerCase() + " as a " + card(id).v + ". " + N(by) + " drinks!", "wait");
             return { ok: true };
         }
         if (act === "claim") {

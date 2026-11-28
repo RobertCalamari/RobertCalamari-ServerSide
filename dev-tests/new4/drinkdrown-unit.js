@@ -75,7 +75,8 @@ function game(seed, n) {
             const o = Math.floor(rng() * n);
             const w = st.hands[o].find((id) => CARDS[id].t === "wait" && !st.conv.includes(id));
             if (w !== undefined && rng() < 0.5) {
-                r = mv(o, { act: "convert", id: w });
+                ok(!!mv(o, { act: "convert", id: w }).error, "can't turn a Wait card into a number before it happens");
+                r = mv(o, { act: "convert", id: w, by: Math.floor(rng() * n) });
                 ok(!!mv(o, { act: "claim", id: w, by: 0 }).error, "a converted Wait card can't be claimed");
                 stats.converts = (stats.converts || 0) + 1;
             } else if (w !== undefined) {
