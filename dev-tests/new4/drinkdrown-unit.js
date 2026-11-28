@@ -52,7 +52,7 @@ function game(seed, n) {
     const stats = { plays: 0, counters: 0, claims: 0, challenges: 0, turns: 0, errors: 0 };
     const pick = (a) => a[Math.floor(rng() * a.length)];
     const payFor = (s, cost, avoid) => {
-        const hand = st.hands[s].filter((id) => !avoid.includes(id)).map((id) => ({ id, c: CARDS[id] })).filter((x) => x.c.t === "number" || x.c.t === "wait").sort((a, b) => b.c.v - a.c.v);
+        const hand = st.hands[s].filter((id) => !avoid.includes(id)).map((id) => ({ id, c: CARDS[id] })).filter((x) => x.c.t === "number" || st.conv.includes(x.id)).sort((a, b) => b.c.v - a.c.v);
         const ids = [];
         const wild = {};
         let tot = 0;
@@ -73,8 +73,12 @@ function game(seed, n) {
         let r = { ok: true };
         if (rng() < 0.05) {
             const o = Math.floor(rng() * n);
-            const w = st.hands[o].find((id) => CARDS[id].t === "wait");
-            if (w !== undefined) {
+            const w = st.hands[o].find((id) => CARDS[id].t === "wait" && !st.conv.includes(id));
+            if (w !== undefined && rng() < 0.5) {
+                r = mv(o, { act: "convert", id: w });
+                ok(!!mv(o, { act: "claim", id: w, by: 0 }).error, "a converted Wait card can't be claimed");
+                stats.converts = (stats.converts || 0) + 1;
+            } else if (w !== undefined) {
                 r = mv(o, { act: "claim", id: w, by: Math.floor(rng() * n) });
                 stats.claims++;
             }

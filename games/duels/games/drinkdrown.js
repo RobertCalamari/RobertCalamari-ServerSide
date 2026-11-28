@@ -39,7 +39,9 @@ function draw(state, s, k, ctx) {
             state.discard = [];
             log(state, "The discard pile was shuffled back into the deck", "info");
         }
-        state.hands[s].push(state.deck.pop());
+        const id = state.deck.pop();
+        take(state.conv, id);
+        state.hands[s].push(id);
         got++;
     }
     return got;
@@ -71,8 +73,9 @@ function pay(state, s, cost, ids, wild, avoid) {
             if (!Number.isInteger(v) || v < 1 || v > 6) return { error: "Pick a value from 1 to 6 for your wild card." };
             total += v;
             drinks.push(v);
-        } else if (c.t === "number" || c.t === "wait") total += c.v;
-        else return { error: "Only Number and Wait cards can pay." };
+        } else if (c.t === "number" || (c.t === "wait" && state.conv.includes(id))) total += c.v;
+        else if (c.t === "wait") return { error: "Turn that Wait card into a number card first." };
+        else return { error: "Only Number cards (and Wait cards turned into numbers) can pay." };
     }
     if (total < cost) return { error: "That's " + total + ". You need " + cost + "." };
     return { ok: true, ids, drinks, total };
@@ -391,13 +394,14 @@ module.exports = {
         const state = {
             n: players, deck, discard: [], hands: seats(players).map(() => []), scored: seats(players).map(() => []), skip: new Array(players).fill(0),
             turn: 0, turns: 1, phase: "setup", pending: null, passed: null, reactAt: null, tick: 0, cup: null, log: [], logNo: 0, goal: 25,
+            conv: [], // Wait cards someone turned into number cards (for good, until the card goes back through the deck)
         };
         seats(players).forEach((s) => draw(state, s, START, ctx));
         return state;
     },
     view(state, seat) {
         const v = pub(state);
-        v.hand = state.hands[seat].map((id) => ({ id, ...card(id) }));
+        v.hand = state.hands[seat].map((id) => ({ id, ...card(id), ...(state.conv.includes(id) ? { conv: true } : null) }));
         return v;
     },
     tv(state) {
@@ -433,9 +437,17 @@ module.exports = {
             if (state.passed.every(Boolean)) afterReact(state, ctx);
             return { ok: true };
         }
+        if (act === "convert") {
+            const id = p.id;
+            if (!Number.isInteger(id) || !state.hands[s].includes(id) || card(id).t !== "wait") return { error: "Pick a Wait card from your hand." };
+            if (state.conv.includes(id)) return { ok: true, quiet: true };
+            state.conv.push(id);
+            return { ok: true };
+        }
         if (act === "claim") {
             const id = p.id;
             if (!Number.isInteger(id) || !state.hands[s].includes(id) || card(id).t !== "wait") return { error: "Claim a Wait card from your hand." };
+            if (state.conv.includes(id)) return { error: "You turned that one into a number card. It can't be claimed now." };
             const by = p.by;
             if (!Number.isInteger(by) || by < 0 || by >= state.n) return { error: "Who made it happen?" };
             take(state.hands[s], id);
