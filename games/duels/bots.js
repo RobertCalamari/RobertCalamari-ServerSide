@@ -1295,7 +1295,52 @@ function shopBot(v, k) {
     return { move: { act: "ready" }, wait: r(k, 5000, 9000) };
 }
 
+// town rivals: tries every market tile on every open lot and keeps the best trade-off of points, income and hurting rivals
+function townBot(v, k) {
+    if (!v.myTurn) return null;
+    const g = G("townrivals");
+    const st = k.state;
+    const s = k.seat;
+    const left = v.rounds - v.round;
+    const n = st.coins.length;
+    const before = range(n).map((x) => g.score(st, x).total);
+    const nb = (i) => [i - st.size, i + st.size, i % st.size ? i - 1 : -1, i % st.size < st.size - 1 ? i + 1 : -1].filter((j) => j >= 0 && j < st.cells.length);
+    const tile = (j) => (st.cells[j] && st.cells[j] !== "rock" ? st.cells[j] : null);
+    const opts = [];
+    const lots = st.cells.map((x, i) => (x ? -1 : i)).filter((i) => i >= 0);
+    for (const p of v.pool) {
+        const d = v.defs[p.t];
+        if (d.cost > st.coins[s]) continue;
+        for (const i of lots) {
+            st.cells[i] = { t: p.t, o: s };
+            const after = range(n).map((x) => g.score(st, x).total);
+            st.cells[i] = null;
+            const mine = after[s] - before[s];
+            const theirs = range(n).filter((x) => x !== s).reduce((t, x) => t + after[x] - before[x], 0);
+            // coins a tile will make before the game ends, as points (3 coins = 1 point)
+            const around = nb(i).map(tile).filter(Boolean);
+            let coins = 0;
+            if (p.t === "farm") coins = 2 * left;
+            if (p.t === "factory") coins = 3 * left;
+            if (p.t === "shop") coins = around.filter((y) => y.t === "house").length * left;
+            if (p.t === "thief" && !around.some((y) => y.t === "police")) coins = new Set(around.filter((y) => y.o !== null && y.o !== s).map((y) => y.o)).size * left;
+            // a house next to an open lot has room to grow (a park later)
+            const room = p.t === "house" ? nb(i).filter((j) => !st.cells[j]).length * 0.15 : 0;
+            const val = mine - theirs * (k.level === "hard" ? 0.6 : 0.2) + (coins - d.cost) / 3 + room;
+            opts.push({ p, i, val });
+        }
+    }
+    const wait = think(k, [1500, 3500], [1000, 2200]);
+    if (!opts.length) return { move: { act: "pass" }, wait };
+    opts.sort((a, b) => b.val - a.val);
+    const passVal = (v.pass + (left ? 0 : 0)) / 3;
+    const pickOpt = k.level === "hard" ? opts[0] : opts[Math.floor(k.rng() * Math.min(6, opts.length))];
+    if (pickOpt.val < passVal) return { move: { act: "pass" }, wait };
+    return { move: { act: "take", id: pickOpt.p.id, cell: pickOpt.i }, wait };
+}
+
 const BOTS = {
+    townrivals: townBot,
     cardshop: shopBot,
     spacekitchen: kitchenBot,
     shapeshift: shapeBot,
