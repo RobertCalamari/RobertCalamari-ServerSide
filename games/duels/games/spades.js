@@ -8,7 +8,7 @@ const FLOOR = -200;
 const BID_MS = 30000;
 const PLAY_MS = 20000;
 const AFK_MS = 6000;
-const TRICK_MS = 1300;
+const TRICK_MS = 1800;
 const SCORE_MS = 8000;
 
 const team = (s) => s % 2;
@@ -199,6 +199,7 @@ module.exports = {
     scoreTeam,
     applyScore,
     winnerOf,
+    autoBid,
     init({ rng, ctx }) {
         const state = { phase: "bid", hand: 0, dealer: Math.floor(rng() * 4), turn: 0, deadline: 0, tick: 0, hands: [], bids: [], tricks: [], trick: [], trickWinner: null, last: null, broken: false, scores: [0, 0], bags: [0, 0], history: [], summary: null, target: TARGET, afk: [0, 0, 0, 0], auto: null, over: false };
         deal(state, ctx);

@@ -4,7 +4,7 @@ const { ranked } = require("../rank");
 const WIN = 7;
 const COUNT = 20;
 const READY_MS = 2500;
-const REVEAL_MS = 1300;
+const REVEAL_MS = 2200;
 const ASK_MS = 15000;
 
 const int = (rng, lo, hi) => lo + Math.floor(rng() * (hi - lo + 1));

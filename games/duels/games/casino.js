@@ -168,15 +168,15 @@ function endPlay(state, ctx) {
         const pool = DRINKS.concat(mine).filter((id) => ITEMS[id].cost > 0);
         return { id: pool[Math.floor(ctx.rng() * pool.length)], pct: 10 * (1 + Math.floor(ctx.rng() * 5)) };
     });
+    // no clock: the shop closes when everyone taps done (or the host skips)
     state.shopDone = seats(state.n).map(() => false);
-    state.endAt = ctx.now() + state.cfg.shop * 1000;
-    const tick = ++state.tick;
-    ctx.later(state.cfg.shop * 1000, () => state.tick === tick && state.phase === "shop" && startResolve(state, ctx));
+    state.endAt = null;
+    state.tick++;
 }
 
 function startResolve(state, ctx) {
     state.phase = "resolve";
-    state.endAt = ctx.now() + state.cfg.resolve * 1000;
+    state.endAt = null;
     state.resolved = state.pend;
     state.pend = [];
     state.resolveDone = seats(state.n).map(() => false);
@@ -190,8 +190,7 @@ function startResolve(state, ctx) {
         if (e.sips) e.sips *= 2;
         feed(state, t.by, N(t.by) + "'s trap card sent it back to " + N(e.by) + " 💣", "bad");
     });
-    const tick = ++state.tick;
-    ctx.later(state.cfg.resolve * 1000, () => state.tick === tick && state.phase === "resolve" && endResolve(state, ctx));
+    state.tick++;
 }
 
 // everything that lands on one player in the reveal: sips, a finish/shot, a chug. Drinking Buddies add their buyer's drinks

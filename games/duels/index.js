@@ -116,7 +116,7 @@ module.exports = function attachDuels(io) {
         });
     }
     const wakeBots = (room) => {
-        if (!room.botLoop && room.seats.some(isBot)) room.botLoop = setInterval(safe(() => botTick(room)), 300);
+        if (!room.botLoop && room.seats.some(isBot)) room.botLoop = setInterval(safe(() => botTick(room)), 100);
     };
 
     function clearTimers(room) {

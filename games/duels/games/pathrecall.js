@@ -8,7 +8,7 @@ const FIRST = 3;
 const LAST = 12;
 const READY_MS = 3000;
 const STEP_MS = 520;
-const REVEAL_MS = 2600;
+const REVEAL_MS = 3800;
 
 const near = (a, b) => a !== b && Math.abs((a % SIZE) - (b % SIZE)) <= 1 && Math.abs(Math.floor(a / SIZE) - Math.floor(b / SIZE)) <= 1;
 

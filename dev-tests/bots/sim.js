@@ -81,6 +81,7 @@ for (const id of Object.keys(BOTS)) {
             console.log("FAIL", id, "too many refused moves", r.bad + "/" + r.moves);
         }
         r.hardWon = r.res && r.res.winner === hardSeat;
+        if (process.env.SHOW) console.log("  ", id, JSON.stringify(levels), r.res && r.res.text);
     }
     const done = out.filter((r) => r.res);
     console.log(id.padEnd(12), "finished " + done.length + "/" + out.length, "hard wins " + out.filter((r) => r.hardWon).length, "refused " + out.reduce((x, r) => x + r.bad, 0) + "/" + out.reduce((x, r) => x + r.moves, 0), "game mins " + out.map((r) => r.mins).join(","), "real " + (Date.now() - t0) + "ms");
