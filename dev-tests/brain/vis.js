@@ -1,7 +1,7 @@
 // Visual run: node vis.js <game> <mode: group|solo|duel>
 const { launch, wait } = require("./cdp");
 const { open, call, mv } = require("./common");
-const S = "C:/Users/D/Documents/New folder/RobertCalamari-ServerSide/games/duels/";
+const S = "../../games/duels/";
 const W = require(S + "words.js");
 const DT = require(S + "games/digittarget.js");
 const SV = "?server=http://localhost:4007";

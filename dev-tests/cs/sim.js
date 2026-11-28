@@ -1,6 +1,6 @@
 // Headless balance sim: run the cardshop game module with bot strategies on simulated time.
-const G = require("C:/Users/D/Documents/New folder/RobertCalamari-ServerSide/games/duels/games/cardshop.js");
-const M = require("C:/Users/D/Documents/New folder/RobertCalamari-ServerSide/games/duels/cardshop/market.js");
+const G = require("../../games/duels/games/cardshop.js");
+const M = require("../../games/duels/cardshop/market.js");
 function mulberry32(a) { return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 
 function run(seed, strats, log) {
@@ -9,7 +9,7 @@ function run(seed, strats, log) {
   const rng = mulberry32(seed);
   const ctx = { rng, now: () => now, later: (ms, fn) => timers.push({ t: now + ms, fn, k: timers.length + Math.random() }) };
   const realNow = Date.now; Date.now = () => now;
-  const st = G.init({ rng, ctx, players: strats.length });
+  const st = G.init({ rng, ctx, players: strats.length, options: { timer: !process.env.UNTIMED } });
   const n = strats.length;
   const brng = mulberry32(seed + 99);
   const errs = {};
@@ -21,7 +21,18 @@ function run(seed, strats, log) {
   while (!G.result(st) && guard++ < 100000) {
     const key = st.day + st.phase;
     if (key !== lastPhase && st.phase === "report") revs[st.day] = st.report.today.map((t) => t.rev);
-    if (key !== lastPhase) { lastPhase = key; for (let s = 0; s < n; s++) BOTS[strats[s]].phase(st, s, mv, brng); }
+    if (key !== lastPhase) { lastPhase = key; for (let s = 0; s < n; s++) BOTS[strats[s]].phase(st, s, mv, brng); 
+      // untimed: everyone presses Ready, then the next phase's bot moves run right away (no timer would wake us)
+      while (process.env.UNTIMED && ["buy", "setup", "report"].includes(st.phase) && !G.result(st)) {
+        const ph = st.day + st.phase;
+        for (let s = 0; s < n && st.day + st.phase === ph; s++) mv(s, { act: "ready" });
+        const k2 = st.day + st.phase;
+        if (k2 === ph) break;
+        lastPhase = k2;
+        if (st.phase === "report") revs[st.day] = st.report.today.map((t) => t.rev);
+        for (let s = 0; s < n; s++) BOTS[strats[s]].phase(st, s, mv, brng);
+      }
+    }
     if (st.phase === "sell") for (let s = 0; s < n; s++) {
       const o = st.q[s][0];
       if (!o || brng() >= 0.5) continue;

@@ -1,5 +1,5 @@
 const assert = require("assert");
-const KT = require("C:/Users/D/Documents/New folder/RobertCalamari-ServerSide/games/duels/games/knifethrow.js");
+const KT = require("../../games/duels/games/knifethrow.js");
 function seeded(s) { return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
 function mkctx() { const c = { t: 100000, timers: [] }; c.now = () => c.t; c.later = (ms, fn) => c.timers.push({ at: c.t + ms, fn }); c.advance = (ms) => { c.t += ms; let due; while ((due = c.timers.filter(x => x.at <= c.t)).length) { c.timers = c.timers.filter(x => x.at > c.t); due.forEach(x => x.fn(c.t)); } }; return c; }
 const TAU = Math.PI * 2, norm = a => ((a % TAU) + TAU) % TAU;

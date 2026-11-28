@@ -1,6 +1,6 @@
 // Hedge Run rules, straight against the module with a fake clock.
 const assert = require("assert");
-const H = require("C:/Users/D/Documents/New folder/RobertCalamari-ServerSide/games/duels/games/hedgerun.js");
+const H = require("../../games/duels/games/hedgerun.js");
 function mkctx() { const c = { t: 1000, timers: [] }; c.now = () => c.t; c.later = (ms, fn) => c.timers.push({ at: c.t + ms, fn }); c.advance = (ms) => { c.t += ms; let due; while ((due = c.timers.filter((x) => x.at <= c.t)).length) { c.timers = c.timers.filter((x) => x.at > c.t); due.forEach((x) => x.fn(c.t)); } }; return c; }
 let pass = 0;
 const ok = (cond, label) => { assert.ok(cond, label); pass++; };

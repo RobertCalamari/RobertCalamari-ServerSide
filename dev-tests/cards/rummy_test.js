@@ -1,5 +1,5 @@
 const { wait, T, check, until, room, mv, V, TV, cardsIn, bySeat } = require("./common");
-const RM = require("C:/Users/D/Documents/New folder/RobertCalamari-ServerSide/games/duels/games/rummy500.js");
+const RM = require("../../games/duels/games/rummy500.js");
 const rank = (c) => "23456789TJQKA".indexOf(c[0]) + 2;
 const pubCards = (v) => new Set(v.discard.concat(v.melds.flatMap((m) => m.cards.map((x) => x.c)), (v.log && v.log.cards) || [], v.must ? [v.must] : []));
 async function start(n) {

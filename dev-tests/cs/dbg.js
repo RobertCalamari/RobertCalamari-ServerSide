@@ -1,5 +1,5 @@
 const { run } = require("./sim");
-const M = require("C:/Users/D/Documents/New folder/RobertCalamari-ServerSide/games/duels/cardshop/market.js");
+const M = require("../../games/duels/cardshop/market.js");
 let worst = null;
 for (let g = 0; g < 30; g++) {
   const strats = ["ripper", "sealed", "singles", "dealer", "hype", "idle"].sort(() => Math.random() - 0.5);

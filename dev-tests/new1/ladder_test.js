@@ -21,8 +21,8 @@ async function play(mode) {
       else { const sk = await mv(ps[0], { q: 0, act: "skip" }); check(mode + ": timed skip refused", !sk.ok); }
     }
     // we can't see the path, so find one with the server's own ladder module (same word lists)
-    const L = require("C:/Users/D/Documents/New folder/RobertCalamari-ServerSide/games/duels/ladder.js");
-    const W = require("C:/Users/D/Documents/New folder/RobertCalamari-ServerSide/games/duels/words.js");
+    const L = require("../../games/duels/ladder.js");
+    const W = require("../../games/duels/words.js");
     const b = L.bfs(v.start, (x) => x.length === v.len && W.VALID.has(x), 9);
     const path = [v.target]; while (path[0] !== v.start) path.unshift(b.prev[path[0]]);
     check(mode + " r" + r + ": found shortest " + (path.length - 1), path.length - 1 === v.best);
@@ -40,7 +40,7 @@ async function play(mode) {
     const ok = await until(() => V(ps[0]).phase === "reveal" && V(ps[0]).index === r, 100000);
     const rv = V(ps[0]);
     check(mode + " r" + r + ": reveal (" + (Date.now() - t0) + "ms), path shown, s0 scored", ok && rv.path.length === path.length && rv.path[0] === v.start && rv.got[0] >= 15 && rv.got[0] <= 22 && (n < 2 || (rv.got[1] >= 15 && rv.got[0] > rv.got[1] - 3)) && rv.got.slice(2).every((g) => g === 0), JSON.stringify(rv.got));
-    if (tv) check(mode + " r" + r + ": tv gets the reveal", JSON.stringify(TV(tv).path) === JSON.stringify(rv.path));
+    if (tv) check(mode + " r" + r + ": tv gets the reveal", await until(() => JSON.stringify(TV(tv).path) === JSON.stringify(rv.path), 2000), JSON.stringify(TV(tv).path));
   }
   const ok = await until(() => ps[0].last.match.result, 15000);
   const res = ps[0].last.match.result;

@@ -1,7 +1,7 @@
 // Rummy with melds on the table: one browser phone + 3 melding bots + two TVs
 const { launch, wait } = require("./cdp");
 const { bots } = require("./bots");
-const RM = require("C:/Users/D/Documents/New folder/RobertCalamari-ServerSide/games/duels/games/rummy500.js");
+const RM = require("../../games/duels/games/rummy500.js");
 const SV = "?server=http://localhost:4008", SITE = "http://localhost:5056";
 const rank = (c) => "23456789TJQKA".indexOf(c[0]) + 2;
 function meldsIn(hand) {

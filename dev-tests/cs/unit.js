@@ -1,5 +1,5 @@
 // Direct module checks: slot cap at 10, slot costs, counter options.
-const G = require("C:/Users/D/Documents/New folder/RobertCalamari-ServerSide/games/duels/games/cardshop.js");
+const G = require("../../games/duels/games/cardshop.js");
 let now = 1e12; const timers = [];
 const ctx = { rng: Math.random, now: () => now, later: (ms, fn) => timers.push({ t: now + ms, fn }) };
 const st = G.init({ rng: Math.random, ctx, players: 3 });

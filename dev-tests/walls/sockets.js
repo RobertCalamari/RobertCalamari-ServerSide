@@ -9,7 +9,7 @@ const open = async () => { const s = io(URL, { transports: ["websocket"], forceN
 const until = async (fn, ms = 60000) => { const t = Date.now(); while (Date.now() - t < ms) { if (fn()) return true; await wait(30); } return false; };
 const mv = (p, d) => call(p, "duel:move", d);
 const V = (p) => p.last && p.last.match && p.last.match.view;
-const H = require("C:/Users/D/Documents/New folder/RobertCalamari-ServerSide/games/duels/games/hedgerun.js");
+const H = require("../../games/duels/games/hedgerun.js");
 
 async function room(group) {
   const a = await open(), b = await open();

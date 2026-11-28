@@ -1,7 +1,7 @@
 // Deterministic module checks for actions, fishing, challenge, VIP bounty and hot streaks.
-const G = require("C:/Users/D/Documents/New folder/RobertCalamari-ServerSide/games/duels/games/cardshop.js");
-const M = require("C:/Users/D/Documents/New folder/RobertCalamari-ServerSide/games/duels/cardshop/market.js");
-const X = require("C:/Users/D/Documents/New folder/RobertCalamari-ServerSide/games/duels/cardshop/extras.js");
+const G = require("../../games/duels/games/cardshop.js");
+const M = require("../../games/duels/cardshop/market.js");
+const X = require("../../games/duels/cardshop/extras.js");
 let fails = 0;
 const ok = (l, c, x = "") => { console.log((c ? "PASS " : "FAIL ") + l + (x ? "  " + x : "")); if (!c) fails++; };
 function game(n = 3, seed = 7) {
@@ -12,7 +12,7 @@ function game(n = 3, seed = 7) {
   const ctx = { rng, now: () => now, later: (ms, fn) => timers.push({ t: now + ms, fn }) };
   const realNow = Date.now;
   Date.now = () => now;
-  const st = G.init({ rng, ctx, players: n });
+  const st = G.init({ rng, ctx, players: n, options: { timer: true } });
   const mv = (s, p) => G.move(st, s, p, ctx);
   const step = () => { timers.sort((x, y) => x.t - y.t); const t = timers.shift(); now = t.t; t.fn(now); };
   const until = (f) => { for (let i = 0; i < 5000 && !f(); i++) step(); };
@@ -25,9 +25,9 @@ function game(n = 3, seed = 7) {
   const cfg = G.CFG.actions;
   ok("start with " + cfg.base + " actions", st.acts.every((x) => x === cfg.base) && G.view(st, 0).me.acts === cfg.base);
   const x = st.stock[0];
-  ok("bundle of 4 refused", !mv(0, { act: "pack", p: x.p, n: cfg.packs + 1 }).ok && !mv(0, { act: "pack", p: x.p, n: 1.5 }).ok && st.acts[0] === cfg.base);
-  const r = mv(0, { act: "pack", p: x.p, n: 3 });
-  ok("one action buys 3 packs", r.ok && st.packs[0][x.p] === 3 && st.acts[0] === cfg.base - 1);
+  ok("bundle of " + (cfg.packs + 1) + " refused", !mv(0, { act: "pack", p: x.p, n: cfg.packs + 1 }).ok && !mv(0, { act: "pack", p: x.p, n: 1.5 }).ok && st.acts[0] === cfg.base);
+  const r = mv(0, { act: "pack", p: x.p, n: cfg.packs });
+  ok("one action buys " + cfg.packs + " pack" + (cfg.packs > 1 ? "s" : ""), r.ok && st.packs[0][x.p] === cfg.packs && st.acts[0] === cfg.base - 1);
   ok("ripping is free", mv(0, { act: "rip", p: x.p }).ok && st.acts[0] === cfg.base - 1);
   const k = +Object.keys(st.own[0])[0];
   ok("arranging the table is free", mv(0, { act: "slot", i: 0, k, pct: 120 }).ok && mv(0, { act: "slot", i: 0, pct: 150 }).ok && st.acts[0] === cfg.base - 1);
@@ -38,6 +38,7 @@ function game(n = 3, seed = 7) {
   ok("out of actions: buying refused with tomorrow's count", !out.ok && /Out of actions\. Tomorrow you get \d/.test(out.error), out.error);
   ok("out of actions: pack/upgrade/gun/list refused", !mv(0, { act: "pack", p: st.stock[1].p, n: 1 }).ok && !mv(0, { act: "up", key: "lights" }).ok && !mv(0, { act: "up", key: "gun", p: st.stock[0].p }).ok && st.acts[0] === 0);
   ok("unlisting stays free", mv(0, { act: "unlist", id: st.listings[0].id }).ok);
+  if (!st.packs[0][x.p]) st.packs[0][x.p] = 1;
   ok("rip still free when out", mv(0, { act: "rip", p: x.p }).ok);
   // helper: +1 now and every day, cost 80 then 160, capped
   ok("helper costs an action, gives +1 now", mv(1, { act: "up", key: "helper" }).ok && st.up[1].helper === 1 && st.acts[1] === cfg.base && st.cash[1] === 220);

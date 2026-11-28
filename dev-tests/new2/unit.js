@@ -1,5 +1,5 @@
 // direct rule checks for Backgammon, Battle Lines, Liar's Dice
-const G = "C:/Users/D/Documents/New folder/RobertCalamari-ServerSide/games/duels/games/";
+const G = "../../games/duels/games/";
 const BG = require(G + "backgammon.js"), BL = require(G + "battlelines.js"), LD = require(G + "liarsdice.js");
 let fails = 0;
 const check = (l, ok, x = "") => { console.log((ok ? "PASS " : "FAIL ") + l + (x ? "  " + x : "")); if (!ok) fails++; };

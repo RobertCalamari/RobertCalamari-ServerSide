@@ -1,5 +1,5 @@
 const { run } = require("./sim");
-const M = require("C:/Users/D/Documents/New folder/RobertCalamari-ServerSide/games/duels/cardshop/market.js");
+const M = require("../../games/duels/cardshop/market.js");
 const strats = ["ripper", "sealed", "singles", "dealer", "hype", "idle"];
 const { st, v } = run(7, strats);
 console.log("worthHist"); st.worthHist.forEach((h, s) => console.log(strats[s].padEnd(8), h.map((x) => Math.round(x)).join(" ")));

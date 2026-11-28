@@ -1,5 +1,5 @@
 // daily.js without sockets: every kind on a date that picks it, fake clock
-const S = "C:/Users/D/Documents/New folder/RobertCalamari-ServerSide/games/duels/";
+const S = "../../games/duels/";
 const D = require(S + "games/daily.js");
 const DT = require(S + "games/digittarget.js");
 const { bfs } = require(S + "ladder.js");

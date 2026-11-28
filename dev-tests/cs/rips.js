@@ -1,6 +1,6 @@
 // Rip-return distribution per active set at the opening prices.
-const G = require("C:/Users/D/Documents/New folder/RobertCalamari-ServerSide/games/duels/games/cardshop.js");
-const M = require("C:/Users/D/Documents/New folder/RobertCalamari-ServerSide/games/duels/cardshop/market.js");
+const G = require("../../games/duels/games/cardshop.js");
+const M = require("../../games/duels/cardshop/market.js");
 if (process.env.SCALE) G.CFG.priceScale = +process.env.SCALE;
 if (process.env.EV) G.CFG.packEV = +process.env.EV;
 const ctx = { rng: Math.random, now: () => 0, later: () => {} };

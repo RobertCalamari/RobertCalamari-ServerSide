@@ -31,6 +31,6 @@ async function setup(mode, game, options) {
   check(game + " " + mode + ": started", ok);
   return { ps, tv, all: [...ps, ...(tv ? [tv] : [])] };
 }
-const S = "C:/Users/D/Documents/New folder/RobertCalamari-ServerSide/games/duels/";
+const S = "../../games/duels/";
 module.exports.setup = setup;
 module.exports.S = S;
