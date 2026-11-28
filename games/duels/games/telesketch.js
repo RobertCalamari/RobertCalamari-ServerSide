@@ -1,5 +1,6 @@
 // Telephone Sketch: everyone writes a short phrase, then the chains pass around the table. The next player draws it,
-// the next describes that drawing, the next draws the description, and so on (one chain per player, up to 6 steps).
+// the next describes that drawing, the next draws the description, and so on (one chain per player, up to 6 steps;
+// with 3 players each chain goes round the table twice).
 // Nobody sees a chain until the end, when the TV plays every chain back step by step. Tap ❤️ on your favourite steps
 // (not your own); most hearts wins. options.timer = false (casual): no clock, the host can call time.
 const { ranked, seats } = require("../rank");
@@ -151,7 +152,7 @@ module.exports = {
     init({ rng, ctx, players = 3, options = {} }) {
         const pool = IDEAS.slice();
         const ideas = seats(players).map(() => pool.splice(Math.floor(rng() * pool.length), 1)[0]);
-        const state = { n: players, steps: Math.min(players, MAX_STEPS), step: -1, phase: "write", timed: options.timer !== false, deadline: null, chains: seats(players).map(() => []), ideas, show: null, showAt: null, showTick: 0 };
+        const state = { n: players, steps: players === 3 ? 6 : Math.min(players, MAX_STEPS), step: -1, phase: "write", timed: options.timer !== false, deadline: null, chains: seats(players).map(() => []), ideas, show: null, showAt: null, showTick: 0 };
         startStep(state, ctx);
         return state;
     },
