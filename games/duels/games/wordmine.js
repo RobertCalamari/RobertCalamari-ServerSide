@@ -57,6 +57,7 @@ module.exports = {
     quick: true,
     players: [1, 10],
     points,
+    pickWord,
     options: { timer: [true, false] },
     init({ rng, ctx, options = {}, players = 2 }) {
         const { word, all } = pickWord(rng);

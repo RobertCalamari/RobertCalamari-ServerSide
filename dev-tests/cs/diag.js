@@ -1,0 +1,10 @@
+const { run } = require("./sim");
+const M = require("C:/Users/D/Documents/New folder/RobertCalamari-ServerSide/games/duels/cardshop/market.js");
+const strats = ["ripper", "sealed", "singles", "dealer", "hype", "idle"];
+const { st, v } = run(7, strats);
+console.log("worthHist"); st.worthHist.forEach((h, s) => console.log(strats[s].padEnd(8), h.map((x) => Math.round(x)).join(" ")));
+console.log("stats", JSON.stringify(st.stats.map((x) => [x.rev, x.served, x.packs, x.ripped])));
+const kinds = {}; st.feed.forEach((e) => (kinds[e.kind] = (kinds[e.kind] || 0) + 1)); console.log("feed kinds(last40)", kinds);
+st.active.forEach((p) => { const ids = st.pool.filter((i) => M.CARDS[i].s === p); const a = ids.reduce((t, i) => t + st.hist[i][0], 0), b = ids.reduce((t, i) => t + st.price[i], 0); console.log(M.D.SETS[p].name.padEnd(16), "pack", st.packHist[p].map(x=>x.toFixed(1)).join(" "), "cards x", (b / a).toFixed(2), "EV/price", (M.packEV(st, p, 5) / st.pack[p]).toFixed(2)); });
+console.log("news", st.news.slice(1).map((n) => n.text));
+console.log("pulls", st.pulls.length, st.pulls.slice(-3));
