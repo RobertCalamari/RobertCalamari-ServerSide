@@ -25,13 +25,13 @@ const WALL_HP = 4;
 
 const SPECIES = {
     bunny: { icon: "🐰", name: "Bunnies", perk: "Breed easily (the baby roll starts at 40 instead of 60)" },
-    turtle: { icon: "🐢", name: "Turtles", perk: "3 hit points instead of 2" },
+    turtle: { icon: "🐢", name: "Turtles", perk: "3 hit points instead of 2, but they walk slowly" },
     squirrel: { icon: "🐿️", name: "Squirrels", perk: "Carry 2 berries at once" },
     mouse: { icon: "🐭", name: "Mice", perk: "Eat less: 6 berries feed 10 of them" },
     hedgehog: { icon: "🦔", name: "Hedgehogs", perk: "Thorns don't hurt them; predators that bite them often die" },
     fox: { icon: "🦊", name: "Foxes", perk: "Half the time a predator that touches them dies instead" },
-    lizard: { icon: "🦎", name: "Lizards", perk: "Heatwaves and wildfire can't touch them" },
-    frog: { icon: "🐸", name: "Frogs", perk: "Swim through ponds and floods; floods leave their stash alone" },
+    lizard: { icon: "🦎", name: "Lizards", perk: "Heatwaves, wildfire and thorn bushes can't hurt them" },
+    frog: { icon: "🐸", name: "Frogs", perk: "Swim through ponds (and find berries in them) and floods; floods leave their stash alone" },
     raccoon: { icon: "🦝", name: "Raccoons", perk: "Find shiny things: +1 extra coin every morning" },
     skunk: { icon: "🦨", name: "Skunks", perk: "Stink: rival critters can't pinch berries from their camp" },
     beaver: { icon: "🦫", name: "Beavers", perk: "Walls and gates cost 1 less, and their own bumps don't wear walls down" },
@@ -65,7 +65,7 @@ const WEATHER = {
     wind: { icon: "🌬️", name: "Windy", text: "Critters and predators get blown one way across the island." },
     heat: { icon: "🥵", name: "Heatwave", text: "Bushes don't regrow tonight. Lizards don't care." },
     cold: { icon: "🥶", name: "Cold snap", text: "Everyone eats double tonight." },
-    winter: { icon: "❄️", name: "Winter", text: "The last 3 days: everyone eats double and nothing regrows. Stock up!" },
+    winter: { icon: "❄️", name: "Winter", text: "The last 3 days: everyone eats half as much again and nothing regrows. Stock up!" },
     rainbow: { icon: "🌈", name: "Rainbow", text: "Extra coins and gems lie around the island." },
 };
 const DISASTERS = {
@@ -354,7 +354,8 @@ function startDay(state, ctx) {
     if (dis === "sickness") state.critters.slice().forEach((c) => rng() < (perk(state, c.s, "turtle") ? 0.2 : 0.3) && hurt(state, c, "sickness"));
     if (dis === "migration") addDen(state, rng);
     // predators come out of every den, more as the dens grow
-    state.dens.forEach((d) => {
+    // day 1 is calm: the predators stay in their dens
+    if (state.day > 1) state.dens.forEach((d) => {
         for (let k = 0; k < d.lvl; k++) state.preds.push({ id: ++state.ids, kind: d.kind, x: d.x + rng() - 0.5, y: d.y + rng() - 0.5, home: d.id, steps: 0, rest: k * 2, dir: 0, pace: 0.3 });
     });
     // things to stumble over
@@ -451,7 +452,7 @@ function tick(state, ctx) {
             return;
         }
         const from = { x: c.x, y: c.y };
-        wander(state, c, rng, [0.15, 0.45]);
+        wander(state, c, rng, perk(state, c.s, "turtle") ? [0.1, 0.3] : [0.15, 0.45]);
         touch(state, c, rng, from);
     });
     // a teammate bumping into a snared critter sets it free
@@ -498,8 +499,13 @@ function touch(state, c, rng, from) {
                 state.bushes.splice(state.bushes.indexOf(b), 1);
                 poof(state, b, "wither");
             }
-            if (b.thorn && !perk(state, s, "hedgehog")) hurt(state, c, "thorn");
+            if (b.thorn && !perk(state, s, "hedgehog") && !perk(state, s, "lizard")) hurt(state, c, "thorn");
         }
+    }
+    // frogs fish a berry out of any pond they swim through
+    if (perk(state, s, "frog") && !c.young && c.carry < cap && c.cool <= state.t && state.scenery.some((d) => d.k === "pond" && dist(d, c) < 1.2)) {
+        c.carry++;
+        c.cool = state.t + 16;
     }
     const q = state.pickups.find((x) => passed(x, from, c) < 0.6 && (x.k !== "berry" || (!c.young && c.carry < cap)));
     if (q) {
@@ -567,9 +573,9 @@ function startNight(state, ctx) {
     state.critters.slice().forEach((c) => c.snared !== null && c.snared < state.day && kill(state, c, "snare"));
     alive(state).forEach((s) => {
         const nt = state.night[s];
-        // supper: a berry each (mice less, cold snaps and winter double); short on food and the ones who go without take 1 damage
+        // supper: a berry each (mice less; cold snaps double, winter half as much again); short on food and the ones who go without take 1 damage
         const pop = mine(state, s).filter((c) => c.snared === null).length;
-        const need = Math.ceil(pop * (perk(state, s, "mouse") ? 0.6 : 1) * ((state.weather === "cold" || state.weather === "winter") && !state.owned[s].includes("nest") ? 2 : 1));
+        const need = Math.ceil(pop * (perk(state, s, "mouse") ? 0.6 : 1) * (state.owned[s].includes("nest") ? 1 : state.weather === "cold" ? 2 : state.weather === "winter" ? 1.5 : 1));
         const ate = Math.min(need, state.stash[s]);
         state.stash[s] -= ate;
         nt.ate = ate;
