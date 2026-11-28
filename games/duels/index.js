@@ -16,6 +16,9 @@ for (const f of fs.readdirSync(path.join(__dirname, "games"))) {
 
 const rooms = new Map();
 const MAX_GROUP = 16;
+// lobby extras: a player picks one of AVATARS (the phones draw them), and anyone can throw a quick reaction
+const AVATARS = 24;
+const REACTS = ["🎉", "😂", "🔥", "😱", "👏", "🍻", "💀", "❤️"];
 const HOST_GRACE_MS = 15000;
 
 function mulberry32(seed) {
@@ -50,6 +53,7 @@ function newRoom(code, group) {
         notice: null,
         touched: Date.now(),
         matchNo: 0,
+        pick: null, // the game the host has picked (group rooms), shown to everyone before it starts
     };
 }
 
@@ -91,7 +95,7 @@ module.exports = function attachDuels(io) {
                 }
             }
         }
-        const players = room.seats.map((s) => (s ? { name: s.name, connected: s.connected } : null));
+        const players = room.seats.map((s, i) => (s ? { name: s.name, connected: s.connected, avatar: Number.isInteger(s.avatar) ? s.avatar : i % AVATARS } : null));
         const tvs = room.tvs.filter((t) => t.connected).length;
         if (lite) return { lite: true, code: room.code, seat, players, host: room.host, tvs, match, serverNow: Date.now(), notice: null };
         return {
@@ -104,6 +108,7 @@ module.exports = function attachDuels(io) {
             stats: room.stats,
             match,
             gauntlet: room.gauntlet,
+            pick: room.pick,
             games: catalog(),
             serverNow: Date.now(),
             notice: room.notice && room.notice.seat !== seat && Date.now() - room.notice.at < 8000 ? room.notice.text : null,
@@ -315,6 +320,36 @@ module.exports = function attachDuels(io) {
             touch();
             ack({ ok: true, code: r.code, key: tv.key, seat: -1 });
             broadcast(r);
+        }));
+
+        // the host's current pick, so everyone can read about it before it starts
+        socket.on("duel:pick", safe((data) => {
+            if (!room || !room.group || !picker()) return;
+            const id = data && data.game ? String(data.game) : null;
+            if (id !== null && !GAMES[id]) return;
+            if (room.pick === id) return;
+            room.pick = id;
+            touch();
+            broadcast(room);
+        }));
+
+        socket.on("duel:avatar", safe((data) => {
+            if (!mine()) return;
+            const a = Number(data && data.avatar);
+            if (!Number.isInteger(a) || a < 0 || a >= AVATARS) return;
+            room.seats[seat].avatar = a;
+            touch();
+            broadcast(room);
+        }));
+
+        // a quick emoji from the lobby; everyone in the room (and the TV) sees it float up
+        let lastReact = 0;
+        socket.on("duel:react", safe((data) => {
+            if (!mine() || !room.group) return;
+            const e = String((data && data.e) || "");
+            if (!REACTS.includes(e) || Date.now() - lastReact < 600) return;
+            lastReact = Date.now();
+            nsp.to(room.code).emit("react", { seat, e, at: Date.now() });
         }));
 
         socket.on("duel:start", safe((data) => {
