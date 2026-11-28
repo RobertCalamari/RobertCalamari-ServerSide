@@ -1250,34 +1250,45 @@ function shopBot(v, k) {
     const M = require("./cardshop/market");
     const val = (key) => M.value(st, +key);
     const wait = think(k, [1800, 3500], [1000, 2000]);
-    if (st.phase === "sell") {
+    const hard = k.level === "hard";
+    if (st.phase === "done") return null;
+    if (st.phase === "rush") {
         const o = st.q[s][0];
-        if (!o || k.mem.offer === o.id + ":" + o.cash) return null;
-        k.mem.offer = o.id + ":" + o.cash;
-        const want = k.level === "hard" ? 0.92 : r(k, 0.6, 0.95);
-        let yes;
-        if (o.kind === "sell") yes = o.cash <= o.m * (k.level === "hard" ? 0.75 : 0.9) && o.cash <= st.cash[s] * 0.5;
-        else yes = o.cash + (o.giveV || 0) >= o.m * want;
-        return { move: { act: "offer", id: o.id, yes }, wait: r(k, 1200, 3000) };
-    }
-    if (!["buy", "setup", "report"].includes(st.phase) || st.ready[s]) return null;
-    if (st.phase === "buy") {
-        const sealed = st.packs[s].findIndex((n, p) => n > 0 && (k.level !== "hard" || n > 1 || k.rng() < 0.7));
-        if (sealed >= 0) return { move: { act: "rip", p: sealed }, wait: r(k, 1500, 3000) };
-        const stock = st.stock.filter((x) => x.q > 0).sort((a, b) => st.pack[a.p] - st.pack[b.p]);
-        if (st.acts[s] > 0 && stock.length && st.cash[s] > st.pack[stock[0].p] * (k.level === "hard" ? 2.5 : 1.5) && k.mem.bought !== st.day + ":" + st.acts[s]) {
-            k.mem.bought = st.day + ":" + st.acts[s];
-            return { move: { act: "pack", p: (k.level === "hard" ? stock[0] : pick(k, stock)).p, n: 1 }, wait };
+        if (o && k.mem.offer !== o.id) {
+            k.mem.offer = o.id;
+            const ratio = o.cash / o.m;
+            const act = hard ? (ratio >= 1.05 ? "deal" : o.ask / o.cash <= 1.3 ? "counter" : ratio >= 0.9 ? "deal" : "no") : pick(k, ["deal", "deal", "counter", "no"]);
+            return { move: { act, id: o.id }, wait: r(k, 1200, 3500) };
         }
+        if (!st.sniped[s] && k.mem.snipeDay !== st.day && st.q.some((q, x) => x !== s && q.length > 1) && k.rng() < (hard ? 0.05 : 0.02)) {
+            k.mem.snipeDay = st.day;
+            return { move: { act: "snipe" }, wait: r(k, 300, 900) };
+        }
+        return null;
+    }
+    if (st.ready[s]) return null;
+    if (st.phase === "morning") {
+        const sealed = st.packs[s].findIndex((n) => n > 0);
+        if (sealed >= 0) return { move: { act: "rip", p: sealed }, wait: r(k, 1500, 3000) };
+        const offers = st.offers.slice().sort((a, b) => st.pack[a] - st.pack[b]);
+        const p = hard ? offers.slice().reverse().find((x) => st.cash[s] > st.pack[x] * 1.5) ?? offers[0] : pick(k, offers);
+        const keep = hard ? 1.5 : 1.2;
+        if (st.bought[s] < 3 && st.cash[s] > st.pack[p] * keep) return { move: { act: "buy", p }, wait };
         return { move: { act: "ready" }, wait };
     }
-    if (st.phase === "setup") {
-        const row = st.disp[s];
+    if (st.phase === "table") {
+        if (hard && st.day === 1 && st.spots[s] < 4 && st.cash[s] > 120) return { move: { act: "upgrade", what: "spot" }, wait };
+        if (hard && st.day === 2 && !st.sign[s] && st.cash[s] > 150) return { move: { act: "upgrade", what: "sign" }, wait };
+        const row = st.table[s];
         const empty = row.findIndex((x) => !x);
         if (empty >= 0) {
             const shown = (key) => row.filter((d) => d && d.k === +key).length;
             const spare = Object.keys(st.own[s]).filter((key) => st.own[s][key] - shown(key) > 0).sort((a, b) => val(b) - val(a));
-            if (spare.length) return { move: { act: "slot", i: empty, k: +spare[0], pct: k.level === "hard" ? 120 : pick(k, [80, 100, 120, 150]) }, wait: r(k, 900, 1800) };
+            if (spare.length) {
+                const key = +spare[0];
+                const rare = M.CARDS[M.idxOf(key)].r >= 3;
+                return { move: { act: "slot", i: empty, k: key, tier: hard ? (rare ? "premium" : "fair") : pick(k, ["cheap", "fair", "premium"]) }, wait: r(k, 900, 1800) };
+            }
         }
         return { move: { act: "ready" }, wait };
     }
