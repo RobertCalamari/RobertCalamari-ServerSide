@@ -1382,7 +1382,7 @@ function critterBot(v, k) {
         for (let i = 0; i < 300; i++) {
             const p = { x: 3 + k.rng() * (v.w - 6), y: 2.5 + k.rng() * (v.h - 5) };
             const e = ((p.x - v.w / 2) / (v.w / 2 - 1)) ** 2 + ((p.y - v.h / 2) / (v.h / 2 - 1)) ** 2;
-            if (e < 0.55 && v.homes.every((h) => !h || d(h, p) >= 6.5) && v.scenery.every((x) => d(x, p) > (x.k === "pond" ? 3.2 : 2.2))) return { move: { act: "home", x: p.x, y: p.y }, wait };
+            if (e < 0.55 && v.homes.every((h) => !h || d(h, p) >= 6.5) && v.scenery.every((x) => d(x, p) > (x.k === "pond" ? 3.2 : 2.2)) && v.dens.every((x) => d(x, p) > 3.7) && v.bushes.every((x) => d(x, p) > 1.4)) return { move: { act: "home", x: p.x, y: p.y }, wait };
         }
         return null;
     }
@@ -1415,6 +1415,8 @@ function critterBot(v, k) {
     const rival = v.homes.map((h, x) => x).filter((x) => x !== s && v.out[x] === null)[0];
     want.push(pick(k, [
         ["scarecrow", near(home, 2.8, 4, "scarecrow")],
+        ["spikes", near(home, 2.8, 5, "spikes")],
+        ["tower", near(home, 2.8, 4, "tower")],
         ["herb", near(home, 2.8, 5, "herb")],
         ["thorn", near(home, 3, 7, "thorn")],
         ["hive", near(home, 3, 6, "hive")],
@@ -1425,7 +1427,7 @@ function critterBot(v, k) {
     if (k.mem.buys < (hard ? 4 : 3))
         for (const [key, at] of want) {
             const it = v.shop[key];
-            if (!it || coins < it.coins || stash - (it.food || 0) < pop / 2 || (it.place && !at)) continue;
+            if (!it || !v.offers.includes(key) || coins < it.coins || stash - (it.food || 0) < pop / 2 || (it.place && !at)) continue;
             if (it.once && v.owned[s].includes(key)) continue;
             k.mem.buys++;
             const move = { act: "buy", k: key };

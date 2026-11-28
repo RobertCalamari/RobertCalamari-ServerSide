@@ -20,12 +20,14 @@ const START = 8;
 const CAP = 40;
 const HOME_R = 1.6;
 const SAFE = 6; // ticks a critter can't be hurt after a hit (3 seconds)
+const PAY = 2; // everyone's coins each morning
+const WALL_HP = 4;
 
 const SPECIES = {
     bunny: { icon: "🐰", name: "Bunnies", perk: "Breed easily (odds start at 40 instead of 60)" },
     turtle: { icon: "🐢", name: "Turtles", perk: "3 hit points instead of 2" },
     squirrel: { icon: "🐿️", name: "Squirrels", perk: "Carry 2 berries at once" },
-    mouse: { icon: "🐭", name: "Mice", perk: "Eat half as much" },
+    mouse: { icon: "🐭", name: "Mice", perk: "Eat less: a third of a berry a night instead of half" },
     hedgehog: { icon: "🦔", name: "Hedgehogs", perk: "Thorns don't hurt them; predators that bite them often die" },
     fox: { icon: "🦊", name: "Foxes", perk: "Half the time a predator that touches them dies instead" },
     lizard: { icon: "🦎", name: "Lizards", perk: "Heatwaves and wildfire can't touch them" },
@@ -33,11 +35,13 @@ const SPECIES = {
 };
 // place is the kind of spot it needs: "spot" anywhere sensible, "wall" a grid square, "two" two spots, none = at home
 const SHOP = {
-    seed: { icon: "🌱", name: "Berry bush", coins: 3, place: "spot", text: "Plant a bush. It fruits after 2 days (6 berries) and regrows every night. Anyone's critters can pick it." },
-    thorn: { icon: "🌵", name: "Thorn bush", coins: 2, place: "spot", text: "Fruits after 1 day and regrows fast, but every berry picked costs that critter 1 hit point. Yours too." },
+    seed: { icon: "🌱", name: "Berry bush", coins: 3, place: "spot", text: "Plant a bush. It fruits tomorrow (6 berries) and regrows every night. Anyone's critters can pick it." },
+    thorn: { icon: "🌵", name: "Thorn bush", coins: 2, place: "spot", text: "Fruits straight away and regrows fast, but every berry picked costs that critter 1 hit point. Yours too." },
     tree: { icon: "🍎", name: "Fruit tree", coins: 6, place: "spot", text: "Takes 4 days to grow, then drops 3 berries on the ground around it every night." },
-    wall: { icon: "🧱", name: "Wall", coins: 1, place: "wall", text: "One block. Critters and predators bump into it. Line them up to fence things in or out." },
-    gate: { icon: "🚪", name: "Gate", coins: 3, place: "wall", text: "A wall block that only your own critters can walk through." },
+    wall: { icon: "🧱", name: "Wall", coins: 2, place: "wall", text: "One block critters and predators bump into. Takes 4 knocks: predators always chip it, critters sometimes." },
+    gate: { icon: "🚪", name: "Gate", coins: 4, place: "wall", text: "A wall block only your own critters can walk through. Wears down like a wall." },
+    spikes: { icon: "🗡️", name: "Spike strip", coins: 3, place: "spot", text: "Predators that step on it die. Breaks after 3. Your critters walk over it safely." },
+    tower: { icon: "🏹", name: "Watchtower", coins: 7, place: "spot", text: "Shoots at predators that wander close (within 3 squares). Lasts all game." },
     scarecrow: { icon: "🎃", name: "Scarecrow", coins: 3, place: "spot", text: "Predators that wander near it turn round and go the other way." },
     hive: { icon: "🐝", name: "Beehive", coins: 4, place: "spot", text: "A critter that bumps it grabs honey (3 berries) but may get stung for 1 hit point." },
     herb: { icon: "🌿", name: "Healing herb", coins: 3, place: "spot", text: "A hurt critter that bumps it heals 1 hit point. Regrows 2 days after it's used." },
@@ -46,6 +50,8 @@ const SHOP = {
     fire: { icon: "🔥", name: "Campfire", coins: 3, food: 2, text: "Lit at your home for 2 nights. Makes babies much more likely." },
     store: { icon: "🏚️", name: "Storehouse", coins: 6, once: true, text: "Rival critters that wander into your camp can't pinch berries any more." },
 };
+// every shop has these; the rest is 5 random picks per player, rolled fresh each morning
+const FIXED = ["seed", "wall", "fire"];
 const WEATHER = {
     sunny: { icon: "☀️", name: "Sunny", text: "A normal day." },
     rain: { icon: "🌧️", name: "Rain", text: "Everyone moves a bit slower. Bushes regrow double tonight." },
@@ -160,6 +166,11 @@ function wander(state, a, rng, pace) {
     if (blocked(state, p, a)) {
         a.steps = 0;
         a.rest = 1;
+        const w = state.items.find((it) => (it.k === "wall" || it.k === "gate") && Math.abs(it.x - p.x) < 0.55 && Math.abs(it.y - p.y) < 0.55);
+        if (w && (a.kind || rng() < 0.25) && --w.hp <= 0) {
+            state.items.splice(state.items.indexOf(w), 1);
+            poof(state, w, "crack");
+        }
         return;
     }
     a.x = p.x;
@@ -189,7 +200,7 @@ function choose(state, ctx, s, k) {
     state.homePos = 0;
     homeTurn(state, ctx);
 }
-const homeOk = (state, p, s) => ellipse(p.x, p.y) < 0.62 && state.homes.every((h, i) => !h || i === s || dist(h, p) >= 6) && !state.scenery.some((d) => dist(d, p) < (d.k === "pond" ? 3 : 2));
+const homeOk = (state, p, s) => ellipse(p.x, p.y) < 0.62 && state.homes.every((h, i) => !h || i === s || dist(h, p) >= 6) && !state.scenery.some((d) => dist(d, p) < (d.k === "pond" ? 3 : 2)) && state.dens.every((d) => dist(d, p) >= 3.5) && state.bushes.every((b) => dist(b, p) >= 1.2);
 function homeTurn(state, ctx) {
     state.phase = "home";
     const s = state.homeOrder[state.homePos];
@@ -220,14 +231,7 @@ function startGame(state, ctx) {
     const rng = ctx.rng;
     seats(state.n).forEach((s) => {
         for (let k = 0; k < START; k++) addCritter(state, s, rng);
-        const p = spot(rng, (q) => dist(q, state.homes[s]) > 2.5 && dist(q, state.homes[s]) < 4 && !blocked(state, q));
-        if (p) addBush(state, p, "seed", 0, 6);
     });
-    for (let k = 0; k < 4 + state.n * 2; k++) {
-        const p = spot(rng, (q) => state.homes.every((h) => dist(h, q) > 3) && !blocked(state, q) && state.bushes.every((b) => dist(b, q) > 2));
-        if (p) addBush(state, p, "seed", 0, 6);
-    }
-    for (let k = 0; k < Math.max(2, Math.ceil(state.n / 2) + 1); k++) addDen(state, rng);
     startBuild(state, ctx);
 }
 
@@ -237,6 +241,11 @@ function startBuild(state, ctx) {
     state.phase = "build";
     state.turn = null;
     state.ready = state.ready.map((_, s) => state.out[s] !== null);
+    if (state.day > 1) alive(state).forEach((s) => (state.coins[s] += PAY));
+    state.offers = seats(state.n).map((s) => {
+        const pool = Object.keys(SHOP).filter((k) => !FIXED.includes(k) && !(SHOP[k].once && state.owned[s].includes(k)));
+        return [0, 1, 2, 3, 4].map(() => pool.splice(Math.floor(ctx.rng() * pool.length), 1)[0]).filter(Boolean);
+    });
     const id = ++state.tick;
     state.deadline = ctx.now() + BUILD_MS;
     ctx.later(BUILD_MS, () => state.tick === id && state.phase === "build" && startDay(state, ctx));
@@ -249,7 +258,8 @@ function placeOk(state, p, k, s) {
     if (state.bushes.some((b) => dist(b, p) < 1)) return "Too close to a bush.";
     const solid = k === "wall" || k === "gate";
     // walls can line up next to each other, but nothing gets jammed against anything else
-    if (state.items.some((it) => !(solid && (it.k === "wall" || it.k === "gate")) && dist(it, p) < (solid ? 1.2 : 1) && !(it.k === "snare" && it.s !== s))) return "Too close to something else.";
+    const ends = state.items.flatMap((it) => (it.k === "tunnel" ? [it, { k: "tunnel", x: it.x2, y: it.y2 }] : [it]));
+    if (ends.some((it) => !(solid && (it.k === "wall" || it.k === "gate")) && dist(it, p) < (solid ? 1.2 : 1) && !(it.k === "snare" && it.s !== s))) return "Too close to something else.";
     if (solid && state.bushes.some((b) => dist(b, p) < 1.5)) return "Walls can't box in a bush.";
     return null;
 }
@@ -259,6 +269,7 @@ function buy(state, s, p) {
     if (state.coins[s] < it.coins) return { error: "You need " + it.coins + " coins." };
     if (it.food && state.stash[s] < it.food) return { error: "You need " + it.food + " berries too." };
     if (it.once && state.owned[s].includes(p.k)) return { error: "You already have one." };
+    if (!FIXED.includes(p.k) && !(state.offers[s] || []).includes(p.k)) return { error: "That's not in your shop today." };
     let at = it.place ? { x: Number(p.x), y: Number(p.y) } : null;
     if (it.place === "wall") at = { x: Math.floor(at.x) + 0.5, y: Math.floor(at.y) + 0.5 };
     if (at) {
@@ -274,10 +285,10 @@ function buy(state, s, p) {
     }
     state.coins[s] -= it.coins;
     if (it.food) state.stash[s] -= it.food;
-    if (p.k === "seed" || p.k === "thorn" || p.k === "tree") addBush(state, at, p.k, state.day + (p.k === "seed" ? 2 : p.k === "thorn" ? 1 : 4), 0);
+    if (p.k === "seed" || p.k === "thorn" || p.k === "tree") addBush(state, at, p.k, state.day + (p.k === "seed" ? 1 : p.k === "thorn" ? 0 : 4), p.k === "thorn" ? 4 : 0);
     else if (p.k === "fire") state.fire[s] = 2;
     else if (p.k === "store") state.owned[s].push("store");
-    else state.items.push({ id: ++state.ids, k: p.k, s, x: r1(at.x), y: r1(at.y), x2: at2 ? r1(at2.x) : undefined, y2: at2 ? r1(at2.y) : undefined, ready: 0 });
+    else state.items.push({ id: ++state.ids, k: p.k, s, x: r1(at.x), y: r1(at.y), x2: at2 ? r1(at2.x) : undefined, y2: at2 ? r1(at2.y) : undefined, ready: 0, hp: p.k === "spikes" ? 3 : WALL_HP });
     return { ok: true };
 }
 
@@ -381,6 +392,15 @@ function tick(state, ctx) {
             return log(state, sn.s, "🪤 #" + sn.s + "#'s snare caught a " + DENS[b.kind].icon, "good");
         }
         if (state.blaze && dist(b, state.blaze) <= state.blaze.r && rng() < 0.2) return state.preds.splice(state.preds.indexOf(b), 1);
+        const spikes = state.items.find((it) => it.k === "spikes" && dist(it, b) < 0.7);
+        const tower = state.items.find((it) => it.k === "tower" && dist(it, b) < 3 && rng() < 0.1);
+        if (spikes || tower) {
+            state.preds.splice(state.preds.indexOf(b), 1);
+            poof(state, b, spikes ? "spikes" : "arrow");
+            if (spikes && --spikes.hp <= 0) state.items.splice(state.items.indexOf(spikes), 1);
+            const by = (spikes || tower).s;
+            return log(state, by, (spikes ? "🗡️ #" + by + "#'s spikes got" : "🏹 #" + by + "#'s watchtower shot") + " a " + DENS[b.kind].icon, "good");
+        }
         const c = state.critters.find((x) => dist(x, b) < 0.7 && x.safe <= state.t && homeOf(state, x) !== x.s);
         if (!c) return;
         if (perk(state, c.s, "fox") && rng() < 0.5) {
@@ -573,11 +593,11 @@ function startNight(state, ctx) {
     });
     state.pickups = state.pickups.filter((q) => q.k === "berry").slice(-30).concat(state.pickups.filter((q) => q.k !== "berry").slice(-12));
     if (state.day % 3 === 0) state.dens.forEach((d) => d.lvl++);
-    // tomorrow's weather, and maybe a disaster (never two days running)
+    // tomorrow's weather, and a disaster every third day
     const ws = ["sunny", "sunny", "rain", "wind", "heat", "cold", "rainbow"];
     state.weather = ws[Math.floor(rng() * ws.length)];
     const ds = Object.keys(DISASTERS);
-    state.disaster = !state.disaster && rng() < 0.35 ? ds[Math.floor(rng() * ds.length)] : null;
+    state.disaster = (state.day + 1) % 3 === 0 ? ds[Math.floor(rng() * ds.length)] : null;
     if (state.disaster === "wildfire" && state.weather === "rain") state.weather = "sunny";
     const a = rng() * Math.PI * 2;
     state.wind = { x: r1(Math.cos(a)), y: r1(Math.sin(a)) };
@@ -613,6 +633,8 @@ function pub(state) {
         picks: state.picks,
         speciesDefs: SPECIES,
         shop: SHOP,
+        pay: PAY,
+        wallHp: WALL_HP,
         weatherDefs: WEATHER,
         disasterDefs: DISASTERS,
         denDefs: DENS,
@@ -624,7 +646,7 @@ function pub(state) {
         dens: state.dens,
         bushes: state.bushes.map((b) => ({ id: b.id, x: b.x, y: b.y, food: b.food, thorn: b.thorn, tree: b.tree, grow: Math.max(0, b.ready - state.day) })),
         scenery: state.scenery,
-        items: state.items.filter((it) => it.k !== "snare").map((it) => ({ id: it.id, k: it.k, s: it.s, x: it.x, y: it.y, x2: it.x2, y2: it.y2, off: it.k === "herb" && it.ready > state.day })),
+        items: state.items.filter((it) => it.k !== "snare").map((it) => ({ id: it.id, k: it.k, s: it.s, x: it.x, y: it.y, x2: it.x2, y2: it.y2, hp: it.hp, off: it.k === "herb" && it.ready > state.day })),
         pickups: state.pickups.map((q) => [q.id, q.k, q.x, q.y]),
         trader: state.trader && { x: r1(state.trader.x), y: r1(state.trader.y) },
         blaze: state.blaze,
@@ -667,8 +689,8 @@ module.exports = {
             pickOrder: seats(n).map((i) => (i + start) % n), pickPos: 0, homeOrder: [], homePos: 0, picks: arr(null), homes: arr(null),
             critters: [], preds: [], dens: [], bushes: [], scenery: [], items: [], pickups: [], strikes: [], poofs: [], log: [],
             blaze: null, trader: null, weather: "sunny", disaster: null, wind: { x: r1(Math.cos(a)), y: r1(Math.sin(a)) },
-            stash: arr(10), coins: arr(8), fire: arr(0), owned: seats(n).map(() => []),
-            out: arr(null), ready: arr(false), night: seats(n).map(() => blankNight()), hist: [],
+            stash: arr(10), coins: arr(6), fire: arr(0), owned: seats(n).map(() => []),
+            out: arr(null), ready: arr(false), offers: seats(n).map(() => []), night: seats(n).map(() => blankNight()), hist: [],
         };
         // a little scenery that only gets in the way
         const add = (k, count, gap) => {
@@ -681,11 +703,18 @@ module.exports = {
         add("rock", 3, 3);
         add("tree", 3, 3);
         add("pine", 2, 3);
+        // dens and bushes are out before anyone picks, so homes can be placed with them in mind
+        for (let k = 0; k < Math.max(2, Math.ceil(n / 2) + 1); k++) addDen(state, rng);
+        for (let k = 0; k < 4 + n * 3; k++) {
+            const p = spot(rng, (q) => ellipse(q.x, q.y) < 0.85 && !blocked(state, q) && state.dens.every((d) => dist(d, q) > 2) && state.bushes.every((b) => dist(b, q) > 2));
+            if (p) addBush(state, p, "seed", 0, 6);
+        }
         pickTurn(state, ctx);
         return state;
     },
     view(state, seat) {
         const v = pub(state);
+        v.offers = FIXED.concat(state.offers[seat] || []);
         v.items = v.items.concat(state.items.filter((it) => it.k === "snare" && it.s === seat).map((it) => ({ id: it.id, k: it.k, s: it.s, x: it.x, y: it.y })));
         return v;
     },
