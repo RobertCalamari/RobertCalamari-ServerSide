@@ -1364,7 +1364,44 @@ function recipeBot(v, k) {
     return { move: { act: "ask", dish }, wait };
 }
 
+// critter island: spends coins on traits and food near its own critters, bets on the leader, votes to hurt whoever's ahead
+function critterBot(v, k) {
+    const s = k.seat;
+    const hard = k.level === "hard";
+    const mine = v.critters.filter((c) => c[1] === s);
+    const mid = mine.length ? { x: mine.reduce((t, c) => t + c[2], 0) / mine.length, y: mine.reduce((t, c) => t + c[3], 0) / mine.length } : { x: v.w / 2, y: v.h / 2 };
+    const wait = think(k, [1500, 4000], [900, 2500]);
+    if (v.phase === "vote") {
+        if (v.me.vote) return null;
+        const lead = v.pops.indexOf(Math.max(...v.pops));
+        const nice = ["feast"];
+        const pickE = hard ? (lead === s ? v.offers.find((e) => nice.includes(e)) || v.offers.find((e) => e === "drought") : v.offers.find((e) => !nice.includes(e))) : null;
+        return { move: { act: "vote", e: pickE || pick(k, v.offers) }, wait };
+    }
+    if (v.phase !== "shop" || v.ready[s]) return null;
+    if (v.me.bet === null || v.me.bet === undefined) return { move: { act: "bet", s: hard ? v.pops.indexOf(Math.max(...v.pops)) : Math.floor(k.rng() * v.pops.length) }, wait };
+    const coins = v.me.coins;
+    const tr = v.traits[s];
+    const order = hard ? ["litter", "tough", "speed", "sense", "fangs"] : ["fangs", "speed", "sense", "tough", "litter"].sort(() => k.rng() - 0.5);
+    for (const key of order) {
+        const d = v.traitDefs[key];
+        if (tr[key] < d.max && coins >= d.cost[tr[key]] && (hard || k.rng() < 0.5)) return { move: { act: "trait", k: key }, wait };
+    }
+    if (coins >= v.cost.burrow && !v.burrows.some((b) => b.s === s) && mine.length) return { move: { act: "burrow", x: mid.x, y: mid.y }, wait };
+    if (coins >= v.cost.trap && hard && k.rng() < 0.5) {
+        const lead = v.pops.map((p, i) => [p, i]).filter(([, i]) => i !== s).sort((a, b) => b[0] - a[0])[0];
+        const theirs = lead ? v.critters.filter((c) => c[1] === lead[1]) : [];
+        if (theirs.length) {
+            const c = pick(k, theirs);
+            return { move: { act: "trap", x: c[2], y: c[3] }, wait };
+        }
+    }
+    if (coins >= v.cost.food && mine.length) return { move: { act: "food", x: mid.x + r(k, -1, 1), y: mid.y + r(k, -1, 1) }, wait };
+    return { move: { act: "ready" }, wait };
+}
+
 const BOTS = {
+    critters: critterBot,
     recipe: recipeBot,
     neverbet: neverBot,
     townrivals: townBot,
