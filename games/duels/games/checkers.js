@@ -51,6 +51,7 @@ function count(board, seat) {
 }
 
 module.exports = {
+    _ai: { legalMoves }, // for the bots
     id: "checkers",
     name: "Checkers",
     kind: "turn",

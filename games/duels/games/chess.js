@@ -157,6 +157,7 @@ const colorOf = (s, seat) => (seat === s.white ? "w" : "b");
 const seatOf = (s, c) => (c === "w" ? s.white : 1 - s.white);
 
 module.exports = {
+    _ai: { legal, sqName, colorOf }, // for the bots
     id: "chess",
     name: "Chess",
     kind: "turn",

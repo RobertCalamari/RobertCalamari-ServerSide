@@ -19,6 +19,9 @@ const MAX_GROUP = 16;
 // lobby extras: a player picks one of AVATARS (the phones draw them), and anyone can throw a quick reaction
 const AVATARS = 24;
 const REACTS = ["🎉", "😂", "🔥", "😱", "👏", "🍻", "💀", "❤️"];
+const { BOTS } = require("./bots");
+const BOT_NAMES = ["Botsworth", "Chip", "Sprocket", "Pixel", "Gizmo", "Widget", "Bolt", "Ziggy", "Nova", "Rusty", "Byte", "Cog", "Dynamo", "Echo", "Flux"];
+const isBot = (s) => !!(s && s.bot);
 const HOST_GRACE_MS = 15000;
 
 function mulberry32(seed) {
@@ -57,15 +60,64 @@ function newRoom(code, group) {
     };
 }
 
-// room seats that would play if a game started now
-const active = (room) => (room.group ? room.seats.map((s, i) => (s && s.connected ? i : -1)).filter((i) => i >= 0) : [0, 1]);
+// room seats that would play if a game started now (bots sit out games they can't play)
+const active = (room, game) => (room.group ? room.seats.map((s, i) => (s && s.connected && (!isBot(s) || !game || BOTS[game]) ? i : -1)).filter((i) => i >= 0) : [0, 1]);
 
 module.exports = function attachDuels(io) {
     const nsp = io.of("/duels");
     startSweeper(rooms, (code) => {
         const r = rooms.get(code);
         if (r) r.timers.forEach(clearTimeout);
+        if (r && r.botLoop) clearInterval(r.botLoop);
     });
+
+    // ---------- bots: every few hundred ms each bot in the match looks at its view and maybe moves ----------
+    function botTick(room) {
+        const m = room.match;
+        if (!room.seats.some(isBot)) {
+            clearInterval(room.botLoop);
+            room.botLoop = null;
+            return;
+        }
+        if (!m || m.result) return;
+        const g = GAMES[m.game];
+        const bot = BOTS[m.game];
+        if (!bot) return;
+        room.botBusy = room.botBusy || {};
+        m.players.forEach((rs, me) => {
+            const s = room.seats[rs];
+            if (!isBot(s) || room.botBusy[rs] === m.no) return;
+            let act = null;
+            try {
+                const k = { game: m.game, state: m.state, seat: me, n: m.players.length, rng: Math.random, now: () => Date.now(), level: s.bot.level, mem: (s.bot.mem[m.no] = s.bot.mem[m.no] || {}) };
+                act = bot(g.view(m.state, me), k);
+            } catch (e) {
+                console.log("[DUELS bot error]", m.game, e);
+            }
+            if (!act) return;
+            room.botBusy[rs] = m.no;
+            const wait = act.at ? Math.max(0, act.at - Date.now()) : act.wait || 600;
+            setTimeout(safe(() => {
+                room.botBusy[rs] = null;
+                if (room.match !== m || m.result || room.seats[rs] !== s) return;
+                const list = act.moves || [act.move];
+                for (const p of list) {
+                    let res;
+                    try {
+                        res = g.move(m.state, me, p, { ...ctxFor(room, m.no), host: false });
+                    } catch (e) {
+                        res = { error: "bot move failed" };
+                    }
+                    if (res && !res.error) break;
+                }
+                check(room);
+                broadcast(room, true);
+            }), wait);
+        });
+    }
+    const wakeBots = (room) => {
+        if (!room.botLoop && room.seats.some(isBot)) room.botLoop = setInterval(safe(() => botTick(room)), 300);
+    };
 
     function clearTimers(room) {
         room.timers.forEach(clearTimeout);
@@ -95,7 +147,7 @@ module.exports = function attachDuels(io) {
                 }
             }
         }
-        const players = room.seats.map((s, i) => (s ? { name: s.name, connected: s.connected, avatar: Number.isInteger(s.avatar) ? s.avatar : i % AVATARS } : null));
+        const players = room.seats.map((s, i) => (s ? { name: s.name, connected: s.connected, avatar: Number.isInteger(s.avatar) ? s.avatar : i % AVATARS, bot: s.bot ? s.bot.level : undefined } : null));
         const tvs = room.tvs.filter((t) => t.connected).length;
         if (lite) return { lite: true, code: room.code, seat, players, host: room.host, tvs, match, serverNow: Date.now(), notice: null };
         return {
@@ -109,6 +161,7 @@ module.exports = function attachDuels(io) {
             match,
             gauntlet: room.gauntlet,
             pick: room.pick,
+            botGames: Object.keys(BOTS),
             games: catalog(),
             serverNow: Date.now(),
             notice: room.notice && room.notice.seat !== seat && Date.now() - room.notice.at < 8000 ? room.notice.text : null,
@@ -197,7 +250,7 @@ module.exports = function attachDuels(io) {
     function startMatch(room, gameId, given) {
         const g = GAMES[gameId];
         const options = g && g.options ? pickOptions(g, given) : given || {};
-        const players = active(room);
+        const players = active(room, gameId);
         if (!g || !fits(g, players.length)) return false;
         clearTimers(room);
         const seed = Math.floor(Math.random() * 2 ** 31);
@@ -205,12 +258,12 @@ module.exports = function attachDuels(io) {
         room.match = { no, game: gameId, players, seed, rng: mulberry32(seed), state: null, result: null, startedAt: Date.now(), options };
         room.match.state = g.init({ seed, rng: room.match.rng, options, ctx: ctxFor(room, no), players: players.length });
         check(room);
+        wakeBots(room);
         return true;
     }
 
     function quickList(room, rounds) {
-        const n = active(room).length;
-        const quick = Object.values(GAMES).filter((g) => g.quick && fits(g, n)).map((g) => g.id);
+        const quick = Object.values(GAMES).filter((g) => g.quick && fits(g, active(room, g.id).length)).map((g) => g.id);
         if (!quick.length) return null;
         const list = [];
         let bag = [];
@@ -225,7 +278,7 @@ module.exports = function attachDuels(io) {
     function passHost(room) {
         const h = room.seats[room.host];
         if (h && h.connected) return;
-        const next = room.seats.findIndex((s, i) => s && s.connected && i !== room.host);
+        const next = room.seats.findIndex((s, i) => s && s.connected && !isBot(s) && i !== room.host);
         if (next >= 0) room.host = next;
     }
 
@@ -333,6 +386,36 @@ module.exports = function attachDuels(io) {
             broadcast(room);
         }));
 
+        // the host can fill seats with bots (Easy or Hard) and kick them again
+        socket.on("duel:addbot", safe((data) => {
+            if (!room || !room.group || !picker()) return;
+            if (room.match && !room.match.result) return;
+            if (active(room).length >= MAX_GROUP) return;
+            const level = data && data.level === "hard" ? "hard" : "easy";
+            const used = new Set(room.seats.filter(Boolean).map((x) => x.name));
+            const name = BOT_NAMES.find((n) => !used.has(n)) || "Bot " + (room.seats.length + 1);
+            room.seats.push({ key: makeKey(), name, socketId: null, connected: true, bot: { level, mem: {} }, avatar: Math.floor(Math.random() * AVATARS) });
+            room.stats.wins.push(0);
+            if (room.gauntlet) room.gauntlet.score.push(0);
+            wakeBots(room);
+            touch();
+            broadcast(room);
+        }));
+
+        socket.on("duel:kickbot", safe((data) => {
+            if (!room || !room.group || !picker()) return;
+            const i = Number(data && data.seat);
+            if (!isBot(room.seats[i])) return;
+            if (room.match && !room.match.result && room.match.players.includes(i)) {
+                clearTimers(room);
+                room.match = null;
+                room.gauntlet = null;
+            }
+            room.seats[i] = null;
+            touch();
+            broadcast(room);
+        }));
+
         socket.on("duel:avatar", safe((data) => {
             if (!mine()) return;
             const a = Number(data && data.avatar);
@@ -383,9 +466,8 @@ module.exports = function attachDuels(io) {
             const gt = room.gauntlet;
             if (!gt || gt.done || !room.match || !room.match.result) return;
             // the crowd may have changed: swap in a quick game that fits if this one doesn't
-            const n = active(room).length;
-            if (n < 2) return;
-            if (!fits(GAMES[gt.list[gt.index + 1]], n)) {
+            if (active(room).length < 2) return;
+            if (!fits(GAMES[gt.list[gt.index + 1]], active(room, gt.list[gt.index + 1]).length)) {
                 const alt = quickList(room, 1);
                 if (!alt) return;
                 gt.list[gt.index + 1] = alt[0];
