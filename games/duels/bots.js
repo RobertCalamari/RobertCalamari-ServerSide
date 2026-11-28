@@ -1374,7 +1374,7 @@ function critterBot(v, k) {
     const d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
     if (v.phase === "pick") {
         if (v.turn !== s) return null;
-        const pref = ["bunny", "turtle", "squirrel", "fox", "mouse", "hedgehog", "frog", "lizard"].filter((x) => !v.picks.includes(x));
+        const pref = ["bunny", "turtle", "squirrel", "raccoon", "fox", "mouse", "beaver", "skunk", "hedgehog", "frog", "lizard"].filter((x) => !v.picks.includes(x));
         return { move: { act: "pick", k: hard ? pref[0] : pick(k, pref) }, wait };
     }
     if (v.phase === "home") {
@@ -1382,7 +1382,7 @@ function critterBot(v, k) {
         for (let i = 0; i < 300; i++) {
             const p = { x: 3 + k.rng() * (v.w - 6), y: 2.5 + k.rng() * (v.h - 5) };
             const e = ((p.x - v.w / 2) / (v.w / 2 - 1)) ** 2 + ((p.y - v.h / 2) / (v.h / 2 - 1)) ** 2;
-            if (e < 0.55 && v.homes.every((h) => !h || d(h, p) >= 6.5) && v.scenery.every((x) => d(x, p) > (x.k === "pond" ? 3.2 : 2.2)) && v.dens.every((x) => d(x, p) > 3.7) && v.bushes.every((x) => d(x, p) > 1.4)) return { move: { act: "home", x: p.x, y: p.y }, wait };
+            if (e < 0.65 && v.homes.every((h) => !h || d(h, p) >= 5) && v.scenery.every((x) => d(x, p) > (x.k === "pond" ? 2.6 : 1.6)) && v.dens.every((x) => d(x, p) > 3.2) && v.bushes.every((x) => d(x, p) > 1.2)) return { move: { act: "home", x: p.x, y: p.y }, wait };
         }
         return null;
     }

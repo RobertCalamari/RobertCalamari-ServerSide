@@ -18,9 +18,9 @@ const W = 30;
 const H = 18;
 const START = 8;
 const CAP = 40;
-const HOME_R = 1.6;
+const HOME_R = 1.2;
 const SAFE = 6; // ticks a critter can't be hurt after a hit (3 seconds)
-const PAY = 2; // everyone's coins each morning
+const PAY = 3; // everyone's coins each morning
 const WALL_HP = 4;
 
 const SPECIES = {
@@ -32,13 +32,18 @@ const SPECIES = {
     fox: { icon: "🦊", name: "Foxes", perk: "Half the time a predator that touches them dies instead" },
     lizard: { icon: "🦎", name: "Lizards", perk: "Heatwaves and wildfire can't touch them" },
     frog: { icon: "🐸", name: "Frogs", perk: "Swim through ponds and floods; floods leave their stash alone" },
+    raccoon: { icon: "🦝", name: "Raccoons", perk: "Find shiny things: +1 extra coin every morning" },
+    skunk: { icon: "🦨", name: "Skunks", perk: "Stink: rival critters can't pinch berries from their camp" },
+    beaver: { icon: "🦫", name: "Beavers", perk: "Walls and gates cost 1 less, and their own bumps don't wear walls down" },
 };
+const SOLID = ["wall", "gate"];
+const price = (state, s, k) => SHOP[k].coins - (perk(state, s, "beaver") && SOLID.includes(k) ? 1 : 0);
 // place is the kind of spot it needs: "spot" anywhere sensible, "wall" a grid square, "two" two spots, none = at home
 const SHOP = {
     seed: { icon: "🌱", name: "Berry bush", coins: 3, place: "spot", text: "Plant a bush. It fruits tomorrow (6 berries) and regrows every night. Anyone's critters can pick it." },
     thorn: { icon: "🌵", name: "Thorn bush", coins: 2, place: "spot", text: "Fruits straight away and regrows fast, but every berry picked costs that critter 1 hit point. Yours too." },
     tree: { icon: "🍎", name: "Fruit tree", coins: 6, place: "spot", text: "Takes 4 days to grow, then drops 3 berries on the ground around it every night." },
-    wall: { icon: "🧱", name: "Wall", coins: 2, place: "wall", text: "One block critters and predators bump into. Takes 4 knocks: predators always chip it, critters sometimes." },
+    wall: { icon: "🧱", name: "Wall", coins: 2, place: "wall", text: "One block critters and predators bump into. Takes 4 knocks: every bump from anyone (your own critters too) chips it." },
     gate: { icon: "🚪", name: "Gate", coins: 4, place: "wall", text: "A wall block only your own critters can walk through. Wears down like a wall." },
     spikes: { icon: "🗡️", name: "Spike strip", coins: 3, place: "spot", text: "Predators that step on it die. Breaks after 3. Your critters walk over it safely." },
     tower: { icon: "🏹", name: "Watchtower", coins: 7, place: "spot", text: "Shoots at predators that wander close (within 3 squares). Lasts all game." },
@@ -167,7 +172,7 @@ function wander(state, a, rng, pace) {
         a.steps = 0;
         a.rest = 1;
         const w = state.items.find((it) => (it.k === "wall" || it.k === "gate") && Math.abs(it.x - p.x) < 0.55 && Math.abs(it.y - p.y) < 0.55);
-        if (w && (a.kind || rng() < 0.25) && --w.hp <= 0) {
+        if (w && !(a.s !== undefined && perk(state, a.s, "beaver")) && --w.hp <= 0) {
             state.items.splice(state.items.indexOf(w), 1);
             poof(state, w, "crack");
         }
@@ -200,7 +205,7 @@ function choose(state, ctx, s, k) {
     state.homePos = 0;
     homeTurn(state, ctx);
 }
-const homeOk = (state, p, s) => ellipse(p.x, p.y) < 0.62 && state.homes.every((h, i) => !h || i === s || dist(h, p) >= 6) && !state.scenery.some((d) => dist(d, p) < (d.k === "pond" ? 3 : 2)) && state.dens.every((d) => dist(d, p) >= 3.5) && state.bushes.every((b) => dist(b, p) >= 1.2);
+const homeOk = (state, p, s) => ellipse(p.x, p.y) < 0.7 && state.homes.every((h, i) => !h || i === s || dist(h, p) >= 4.5) && !state.scenery.some((d) => dist(d, p) < (d.k === "pond" ? 2.4 : 1.4)) && state.dens.every((d) => dist(d, p) >= 3) && state.bushes.every((b) => dist(b, p) >= 1);
 function homeTurn(state, ctx) {
     state.phase = "home";
     const s = state.homeOrder[state.homePos];
@@ -209,7 +214,7 @@ function homeTurn(state, ctx) {
     state.deadline = ctx.now() + HOME_MS;
     ctx.later(HOME_MS, () => {
         if (state.tick !== id || state.phase !== "home") return;
-        const p = spot(ctx.rng, (q) => homeOk(state, q, s)) || spot(ctx.rng, (q) => ellipse(q.x, q.y) < 0.62);
+        const p = spot(ctx.rng, (q) => homeOk(state, q, s)) || spot(ctx.rng, (q) => ellipse(q.x, q.y) < 0.7);
         placeHome(state, ctx, s, p);
     });
 }
@@ -241,7 +246,7 @@ function startBuild(state, ctx) {
     state.phase = "build";
     state.turn = null;
     state.ready = state.ready.map((_, s) => state.out[s] !== null);
-    if (state.day > 1) alive(state).forEach((s) => (state.coins[s] += PAY));
+    if (state.day > 1) alive(state).forEach((s) => (state.coins[s] += PAY + (perk(state, s, "raccoon") ? 1 : 0)));
     state.offers = seats(state.n).map((s) => {
         const pool = Object.keys(SHOP).filter((k) => !FIXED.includes(k) && !(SHOP[k].once && state.owned[s].includes(k)));
         return [0, 1, 2, 3, 4].map(() => pool.splice(Math.floor(ctx.rng() * pool.length), 1)[0]).filter(Boolean);
@@ -266,24 +271,26 @@ function placeOk(state, p, k, s) {
 function buy(state, s, p) {
     const it = SHOP[p.k];
     if (!it) return { error: "Pick something from the shop." };
-    if (state.coins[s] < it.coins) return { error: "You need " + it.coins + " coins." };
+    const cost = price(state, s, p.k);
+    if (state.coins[s] < cost) return { error: "You need " + cost + " coins." };
     if (it.food && state.stash[s] < it.food) return { error: "You need " + it.food + " berries too." };
     if (it.once && state.owned[s].includes(p.k)) return { error: "You already have one." };
     if (!FIXED.includes(p.k) && !(state.offers[s] || []).includes(p.k)) return { error: "That's not in your shop today." };
     let at = it.place ? { x: Number(p.x), y: Number(p.y) } : null;
-    if (it.place === "wall") at = { x: Math.floor(at.x) + 0.5, y: Math.floor(at.y) + 0.5 };
+    // everything sits on the same grid as walls
+    if (at) at = { x: Math.floor(at.x) + 0.5, y: Math.floor(at.y) + 0.5 };
     if (at) {
         const why = placeOk(state, at, p.k, s);
         if (why) return { error: why };
     }
     let at2 = null;
     if (it.place === "two") {
-        at2 = { x: Number(p.x2), y: Number(p.y2) };
+        at2 = { x: Math.floor(Number(p.x2)) + 0.5, y: Math.floor(Number(p.y2)) + 0.5 };
         const why = placeOk(state, at2, p.k, s);
         if (why) return { error: "Second hole: " + why.toLowerCase() };
         if (dist(at, at2) < 3) return { error: "Put the two holes further apart." };
     }
-    state.coins[s] -= it.coins;
+    state.coins[s] -= cost;
     if (it.food) state.stash[s] -= it.food;
     if (p.k === "seed" || p.k === "thorn" || p.k === "tree") addBush(state, at, p.k, state.day + (p.k === "seed" ? 1 : p.k === "thorn" ? 0 : 4), p.k === "thorn" ? 4 : 0);
     else if (p.k === "fire") state.fire[s] = 2;
@@ -456,7 +463,7 @@ function touch(state, c, rng) {
         state.stash[s] += c.carry;
         nt.stored += c.carry;
         c.carry = 0;
-    } else if (at >= 0 && at !== s && !c.young && c.carry < cap && state.stash[at] > 0 && !state.owned[at].includes("store") && c.cool <= state.t) {
+    } else if (at >= 0 && at !== s && !c.young && c.carry < cap && state.stash[at] > 0 && !state.owned[at].includes("store") && !perk(state, at, "skunk") && c.cool <= state.t) {
         state.stash[at]--;
         state.night[at].robbed++;
         nt.stole++;
@@ -715,6 +722,7 @@ module.exports = {
     view(state, seat) {
         const v = pub(state);
         v.offers = FIXED.concat(state.offers[seat] || []);
+        v.prices = Object.fromEntries(Object.keys(SHOP).map((k) => [k, state.picks[seat] ? price(state, seat, k) : SHOP[k].coins]));
         v.items = v.items.concat(state.items.filter((it) => it.k === "snare" && it.s === seat).map((it) => ({ id: it.id, k: it.k, s: it.s, x: it.x, y: it.y })));
         return v;
     },
@@ -733,7 +741,7 @@ module.exports = {
             if (state.phase !== "home" || state.turn !== seat) return { error: "Wait for your turn to place your home." };
             const q = { x: Number(p.x), y: Number(p.y) };
             if (!Number.isFinite(q.x) || !Number.isFinite(q.y)) return { error: "Tap the island." };
-            if (ellipse(q.x, q.y) >= 0.62) return { error: "Too close to the water. Tap further in." };
+            if (ellipse(q.x, q.y) >= 0.7) return { error: "Too close to the water. Tap further in." };
             if (!homeOk(state, q, seat)) return { error: "Too close to another home or something in the way." };
             placeHome(state, ctx, seat, q);
             return { ok: true };
