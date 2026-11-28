@@ -1368,36 +1368,66 @@ function recipeBot(v, k) {
 function critterBot(v, k) {
     const s = k.seat;
     const hard = k.level === "hard";
-    const mine = v.critters.filter((c) => c[1] === s);
-    const mid = mine.length ? { x: mine.reduce((t, c) => t + c[2], 0) / mine.length, y: mine.reduce((t, c) => t + c[3], 0) / mine.length } : { x: v.w / 2, y: v.h / 2 };
     const wait = think(k, [1500, 4000], [900, 2500]);
+    const d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+    if (v.phase === "pick") {
+        if (v.turn !== s) return null;
+        const pref = ["bunny", "squirrel", "fox", "mouse", "hedgehog", "turtle", "frog", "lizard"].filter((x) => !v.picks.includes(x));
+        return { move: { act: "pick", k: hard ? pref[0] : pick(k, pref) }, wait };
+    }
+    if (v.phase === "home") {
+        if (v.homes[s]) return null;
+        for (let i = 0; i < 200; i++) {
+            const p = { x: 3 + k.rng() * (v.w - 6), y: 2.5 + k.rng() * (v.h - 5) };
+            const e = ((p.x - v.w / 2) / (v.w / 2 - 1)) ** 2 + ((p.y - v.h / 2) / (v.h / 2 - 1)) ** 2;
+            if (e < 0.7 && v.homes.every((h) => !h || d(h, p) >= 5.5)) return { move: { act: "home", x: p.x, y: p.y }, wait };
+        }
+        return null;
+    }
     if (v.phase === "vote") {
         if (v.me.vote) return null;
-        const lead = v.pops.indexOf(Math.max(...v.pops));
-        const nice = ["feast"];
-        const pickE = hard ? (lead === s ? v.offers.find((e) => nice.includes(e)) || v.offers.find((e) => e === "drought") : v.offers.find((e) => !nice.includes(e))) : null;
-        return { move: { act: "vote", e: pickE || pick(k, v.offers) }, wait };
+        const good = ["harvest", "calm"];
+        return { move: { act: "vote", e: hard ? v.offers.find((e) => good.includes(e)) || pick(k, v.offers) : pick(k, v.offers) }, wait };
     }
-    if (v.phase !== "shop" || v.ready[s]) return null;
-    if (v.me.bet === null || v.me.bet === undefined) return { move: { act: "bet", s: hard ? v.pops.indexOf(Math.max(...v.pops)) : Math.floor(k.rng() * v.pops.length) }, wait };
-    const coins = v.me.coins;
-    const tr = v.traits[s];
-    const order = hard ? ["litter", "tough", "speed", "sense", "fangs"] : ["fangs", "speed", "sense", "tough", "litter"].sort(() => k.rng() - 0.5);
-    for (const key of order) {
-        const d = v.traitDefs[key];
-        if (tr[key] < d.max && coins >= d.cost[tr[key]] && (hard || k.rng() < 0.5)) return { move: { act: "trait", k: key }, wait };
+    if (v.out[s] !== null || v.ready[s]) return null;
+    const home = v.homes[s];
+    const pop = v.pops[s];
+    const need = Math.ceil(pop * (v.picks[s] === "mouse" ? 0.5 : 1));
+    const stash = v.stash[s];
+    if (v.phase === "plan") {
+        if (k.mem.day === v.day) return { move: { act: "ready" }, wait: r(k, 500, 1500) };
+        k.mem.day = v.day;
+        const list = [];
+        const bushes = v.bushes.filter((b) => b.food >= 3).sort((a, b) => d(a, home) - d(b, home));
+        const huts = v.huts.slice().sort((a, b) => d(a, home) - d(b, home));
+        const add = (x) => list.length < v.me.slots && list.push(x);
+        if (stash < need * 2 && bushes[0]) add({ a: "forage", t: bushes[0].id });
+        if (stash < need * 1.5) add({ a: "fish" });
+        if (hard && huts.length && d(huts[0], home) < 8) add({ a: "guard" });
+        const weak = v.huts.slice().sort((a, b) => a.hp - b.hp)[0];
+        if (weak && pop >= (hard ? 9 : 7) && (hard || k.rng() < 0.4)) add({ a: "raid", t: weak.id });
+        if (stash > need * 2 + 4) add({ a: "nest" });
+        if (v.walls[s] < 2 && stash >= need + 3 && hard) add({ a: "fortify" });
+        if (bushes[1]) add({ a: "forage", t: bushes[1].id });
+        while (list.length < v.me.slots) add(pick(k, [{ a: "explore" }, { a: "fish" }, { a: "hunt" }, bushes[0] ? { a: "forage", t: bushes[0].id } : { a: "explore" }]));
+        return { move: { act: "plan", list }, wait };
     }
-    if (coins >= v.cost.burrow && !v.burrows.some((b) => b.s === s) && mine.length) return { move: { act: "burrow", x: mid.x, y: mid.y }, wait };
-    if (coins >= v.cost.trap && hard && k.rng() < 0.5) {
-        const lead = v.pops.map((p, i) => [p, i]).filter(([, i]) => i !== s).sort((a, b) => b[0] - a[0])[0];
-        const theirs = lead ? v.critters.filter((c) => c[1] === lead[1]) : [];
-        if (theirs.length) {
-            const c = pick(k, theirs);
-            return { move: { act: "trap", x: c[2], y: c[3] }, wait };
+    if (v.phase === "shop") {
+        const coins = v.me.coins;
+        const own = v.owned[s];
+        const want = [];
+        if (stash < need * 1.5) want.push(coins >= 6 ? "honey" : "crate");
+        if (hard) want.push("nursery", "dog", "baskets", "wall", "shelter", "fertilizer", "sticks", "lantern");
+        else want.push(pick(k, ["wall", "crate", "trap", "lantern", "raft", "decoy"]));
+        const once = ["dog", "nursery", "baskets", "shelter", "fertilizer", "sticks", "lantern", "raft"];
+        const buy = want.find((x) => v.items[x] && coins >= v.items[x].cost && !(once.includes(x) && own.includes(x)) && !(x === "trap" && v.me.trap) && !(x === "decoy" && v.me.decoy));
+        if (buy && k.mem.bought !== v.day + buy + coins) {
+            k.mem.bought = v.day + buy + coins;
+            return { move: { act: "buy", k: buy }, wait };
         }
+        return { move: { act: "ready" }, wait };
     }
-    if (coins >= v.cost.food && mine.length) return { move: { act: "food", x: mid.x + r(k, -1, 1), y: mid.y + r(k, -1, 1) }, wait };
-    return { move: { act: "ready" }, wait };
+    return null;
 }
 
 const BOTS = {
