@@ -7,13 +7,13 @@
 // at tomorrow. Players never attack each other. Last species standing wins (after 12 days, the biggest).
 const { seats } = require("../rank");
 const DAYS = 12;
-const PICK_MS = 20000;
-const HOME_MS = 25000;
-const PLAN_MS = 40000;
+const PICK_MS = 60000; // every timer is a backstop: each step moves on as soon as everyone is ready
+const HOME_MS = 90000;
+const PLAN_MS = 180000;
 const DAY_MS = 22000;
-const NIGHT_MS = 9000;
-const SHOP_MS = 25000;
-const VOTE_MS = 12000;
+const NIGHT_MS = 60000;
+const SHOP_MS = 120000;
+const VOTE_MS = 60000;
 const TICK = 600;
 const W = 30;
 const H = 18;
@@ -487,13 +487,16 @@ function startNight(state, ctx) {
     state.extra = state.extra.map(() => false);
     state.decoy = state.decoy.map(() => false);
     state.hist.push(seats(state.n).map((s) => mine(state, s).length));
+    // everyone still playing reads the night report, then taps Continue
+    state.ready = state.ready.map((_, s) => state.out[s] !== null);
     state.deadline = ctx.now() + NIGHT_MS;
     const id = ++state.tick;
-    ctx.later(NIGHT_MS, () => {
-        if (state.tick !== id || state.phase !== "night") return;
-        if ((state.n > 1 && alive(state).length <= 1) || !alive(state).length || state.day >= DAYS) return end(state);
-        startShop(state, ctx);
-    });
+    ctx.later(NIGHT_MS, () => state.tick === id && state.phase === "night" && afterNight(state, ctx));
+}
+function afterNight(state, ctx) {
+    state.tick++;
+    if ((state.n > 1 && alive(state).length <= 1) || !alive(state).length || state.day >= DAYS) return end(state);
+    startShop(state, ctx);
 }
 function startShop(state, ctx) {
     state.phase = "shop";
@@ -648,11 +651,12 @@ module.exports = {
             return { ok: true };
         }
         if (p.act === "ready") {
-            if (state.phase !== "plan" && state.phase !== "shop") return { error: "Nothing to finish." };
+            if (!["plan", "shop", "night"].includes(state.phase)) return { error: "Nothing to finish." };
             state.ready[seat] = p.on !== false;
             if (state.ready.every(Boolean)) {
                 if (state.phase === "plan") startDay(state, ctx);
-                else startVote(state, ctx);
+                else if (state.phase === "shop") startVote(state, ctx);
+                else afterNight(state, ctx);
             }
             return { ok: true };
         }

@@ -1391,6 +1391,7 @@ function critterBot(v, k) {
     }
     if (v.out[s] !== null || v.ready[s]) return null;
     const home = v.homes[s];
+    if (v.phase === "night") return { move: { act: "ready" }, wait: r(k, 3000, 6000) };
     const pop = v.pops[s];
     const need = Math.ceil(pop * (v.picks[s] === "mouse" ? 0.5 : 1));
     const stash = v.stash[s];
