@@ -56,7 +56,7 @@ function run(id, levels, seed) {
         while (timers.length && timers[0].t <= now) timers.shift().fn(now);
         now += 100;
     }
-    return { res: null, bad, moves, mins: 40 };
+    return { res: null, bad, moves, mins: 40, stuck: (() => { const v = g.view(st, 0); return { phase: v.phase, turn: v.turn, pending: v.pending && { by: v.pending.by, step: v.pending.step, players: v.pending.players, card: v.pending.card && { t: v.pending.card.t, who: v.pending.card.who, fx: v.pending.card.fx } } }; })() };
 }
 
 const BOARD = ["tictactoe", "connect4", "reversi", "dotsboxes", "mancala", "ultimatettt", "checkers", "chess"];
@@ -81,7 +81,7 @@ for (const id of Object.keys(BOTS)) {
             console.log("FAIL", id, "too many refused moves", r.bad + "/" + r.moves);
         }
         r.hardWon = r.res && r.res.winner === hardSeat;
-        if (process.env.SHOW) console.log("  ", id, JSON.stringify(levels), r.res && r.res.text);
+        if (process.env.SHOW) console.log("  ", id, JSON.stringify(levels), r.res && r.res.text, r.res ? "" : JSON.stringify(r.stuck));
     }
     const done = out.filter((r) => r.res);
     console.log(id.padEnd(12), "finished " + done.length + "/" + out.length, "hard wins " + out.filter((r) => r.hardWon).length, "refused " + out.reduce((x, r) => x + r.bad, 0) + "/" + out.reduce((x, r) => x + r.moves, 0), "game mins " + out.map((r) => r.mins).join(","), "real " + (Date.now() - t0) + "ms");

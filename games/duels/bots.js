@@ -1056,7 +1056,7 @@ function drinkBot(v, k) {
     if (v.phase === "resolve" && pend && pend.by === s) return { move: { act: "done" }, wait: r(k, 3000, 6000) };
     if (v.phase === "challenge" && pend) {
         const all = pend.everyone || (pend.card && pend.card.who === "everyone");
-        if (pend.by !== s) return all && pend.step === "ante" && !pend.players.includes(s) && k.mem.joined !== pend.card.id && (k.mem.joined = pend.card.id) && k.rng() < 0.7 ? { move: { act: "join" }, wait: r(k, 1500, 4000) } : null;
+        if (pend.by !== s) return all && pend.step === "ante" && !pend.players.includes(s) && k.mem.joined !== pend.card.id && (k.mem.joined = pend.card.id) !== undefined ? { move: { act: "join" }, wait: r(k, 1500, 4000) } : null;
         if (pend.step === "ante") return pend.players.length >= 2 ? { move: { act: "start" }, wait: r(k, 2500, 5000) } : null;
         // the challenge happens for real at the table; the bot calls a fair coin
         return { move: { act: "win", seat: pick(k, pend.players) }, wait: r(k, 6000, 12000) };
@@ -1339,7 +1339,40 @@ function townBot(v, k) {
     return { move: { act: "take", id: pickOpt.p.id, cell: pickOpt.i }, wait };
 }
 
+// never have I bet: answers honestly-ish, bets on what a room usually says (hard counts itself in properly)
+function neverBot(v, k) {
+    if (v.phase !== "ask" || (v.me.bet !== null && v.me.yes !== null) || k.mem.round === v.round) return null;
+    k.mem.round = v.round;
+    const yes = k.rng() < 0.5;
+    const others = v.n - 1;
+    const guess = k.level === "hard" ? (yes ? 1 : 0) + Math.round(others * r(k, 0.35, 0.55)) : Math.floor(k.rng() * (v.n + 1));
+    return { move: { round: v.round, yes, bet: Math.max(0, Math.min(v.n, guess)) }, wait: think(k, [5000, 14000], [3000, 9000]) };
+}
+
+// secret recipe: crosses off every card it has seen, asks about what's still unknown, solves once it's sure
+function recipeBot(v, k) {
+    const hard = k.level === "hard";
+    if (v.mustShow) {
+        const c = v.mustShow;
+        // hard re-shows a card the asker may already know about; easy shows any
+        return { move: { act: "show", card: pick(k, c) }, wait: r(k, 1200, 3000) };
+    }
+    if (!v.myTurn) return null;
+    const known = new Set([...v.me.hand, ...v.me.seen, ...v.counter]);
+    const unknown = [0, 1, 2].map((g) => v.cards.map((c, i) => (c.g === g && !known.has(i) ? i : -1)).filter((i) => i >= 0));
+    const wait = think(k, [2500, 5000], [1500, 3500]);
+    const sure = unknown.every((u) => u.length === 1);
+    const brave = !hard && unknown.every((u) => u.length <= 2) && k.rng() < 0.3;
+    if (sure || brave) return { move: { act: "solve", dish: unknown.map((u) => pick(k, u)) }, wait };
+    // ask about unknowns; where a group is solved, use a card from my own hand so only the others can be shown
+    const mine = (g) => v.me.hand.find((c) => v.cards[c].g === g);
+    const dish = unknown.map((u, g) => (u.length === 1 && hard && mine(g) !== undefined ? mine(g) : pick(k, u.length ? u : [mine(g) ?? g * 5])));
+    return { move: { act: "ask", dish }, wait };
+}
+
 const BOTS = {
+    recipe: recipeBot,
+    neverbet: neverBot,
     townrivals: townBot,
     cardshop: shopBot,
     spacekitchen: kitchenBot,
