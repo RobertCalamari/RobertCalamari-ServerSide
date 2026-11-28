@@ -1,6 +1,7 @@
 // Last Call Casino: a casino night against the house. Each round a few random tables open on the floor (one is the Hot
 // Table, +20% on wins) and everyone walks between them, betting as often as they like. Shared tables (roulette, horses,
-// the money wheel, craps, baccarat, crash) run on a clock: bets open, then one spin/race/roll for everybody, repeat.
+// the money wheel, craps, crash) run on a clock: bets open, then one spin/race/roll for everybody, repeat.
+// Table maximums grow each round; the High Roller room has a far bigger minimum and maximum.
 // The rest are your own game, any time. After the play window comes the shop (drinks for other people, from a couple
 // of sips up to a shot, plus sabotage and help), then the resolve step where it all lands: drinks, pauses until
 // someone has finished, Designated Drivers blocking. Broke? Take a shot for more chips. Richest at the end wins.
@@ -15,7 +16,13 @@ const COMPS = 30; // every round after the first, the casino comps everyone a fe
 const TABLES = 5;
 const HOT = 0.2;
 const FEED = 30;
-const SHOW = { roulette: 7000, horses: 9500, wheel: 6500, craps: 7000, baccarat: 6000, crash: 4000 };
+const SHOW = { roulette: 7000, horses: 9500, wheel: 6500, craps: 7000, crash: 4000 };
+const HIGH = { min: 250, max: 10000 };
+const LOAN = { chips: 80, owe: 160 };
+const SPECIAL_COUNT = 5;
+// the main floor's max bet: 50 in round 1, +50 a round, up to 500
+const tableMax = (round) => Math.min(500, 50 * (round + 1));
+const limits = (state, s) => (state.room[s] === "high" ? HIGH : { min: MIN, max: tableMax(state.round) });
 // host settings (seconds) and their limits
 const CFG = { rounds: 8, play: 120, shop: 30, resolve: 20, spin: 20 };
 const LIMITS = { rounds: [3, 20], play: [30, 600], shop: [10, 180], resolve: [5, 120], spin: [8, 90] };
@@ -34,18 +41,30 @@ const ITEMS = {
     horse: { name: "Rigged Race", icon: "🐎", cost: 40, to: "self", text: "Next round your horse wins pay 50% more" },
     ban: { name: "Bouncer", icon: "🚫", cost: 40, to: "one", text: "They can't sit at the Hot Table next round" },
     bounty: { name: "Bounty", icon: "🎯", cost: 50, to: "one", text: "If they lose chips next round they drink 4 and you get 40" },
-    tax: { name: "Tax Collector", icon: "🧾", cost: 90, to: "none", text: "Take 15% of the richest other player's chips" },
-    loan: { name: "Payday Loan", icon: "💸", cost: 0, to: "self", text: "+80 chips now. You drink 3, and owe 120 at the end" },
+    tax: { name: "Tax Collector", icon: "🧾", cost: 60, to: "one", text: "If they lose their next bet next round, you get what they lost. Win it and you get nothing" },
+    loan: { name: "Payday Loan", icon: "💸", cost: 0, to: "self", text: "+" + LOAN.chips + " chips now. You take a shot, and owe " + LOAN.owe + " at the end" },
+    mirror: { name: "Mirror", icon: "🪞", cost: 80, to: "self", text: "Keep it. Bounce one drink sent at you back to whoever sent it" },
+    jinx: { name: "Jinx", icon: "🐈‍⬛", cost: 50, to: "one", text: "Their wins pay 25% less next round" },
+    double: { name: "Double Down", icon: "✌️", cost: 70, to: "self", text: "Your first win next round pays double" },
+    mystery: { name: "Mystery Box", icon: "🎁", cost: 40, to: "self", text: "Anywhere from 0 to 150 chips. Or a sip" },
+    hair: { name: "Hair of the Dog", icon: "🐕", cost: 25, to: "self", text: "You drink 2, the house pays you 50" },
+    rule: { name: "Rule Maker", icon: "📜", cost: 100, to: "self", text: "Make a drinking rule that lasts all next round" },
+    chug: { name: "Chug Clock", icon: "⏱️", cost: 120, to: "one", text: "They chug for 5 seconds" },
 };
 const DRINKS = ["sip", "gulp", "table", "finish", "shot"];
-const SPECIALS = ["dd", "lucky", "insure", "xray", "horse", "ban", "bounty", "tax", "loan"];
+const SPECIALS = ["dd", "lucky", "insure", "xray", "horse", "ban", "bounty", "tax", "loan", "mirror", "jinx", "double", "mystery", "hair", "rule", "chug"];
+// drinks someone can block (Designated Driver) or bounce back (Mirror)
+const STOPPABLE = ["sip", "gulp", "finish", "shot", "bounty", "chug"];
 const N = (s) => "#" + s + "#"; // a player, filled in with their name on the phone
-const blank = () => ({ lucky: [], insure: [], xray: [], horse: [], ban: [], bounty: [] });
+const blank = () => ({ lucky: [], insure: [], xray: [], horse: [], ban: [], bounty: [], tax: [], jinx: [], double: [] });
 // what the screens need to draw the tables
 const META = {
     games: Object.fromEntries(Object.entries(GAMES).map(([id, g]) => [id, { name: g.name, icon: g.icon, blurb: g.blurb, kind: g.kind, shared: !!g.shared }])),
     wheel: C.WHEEL, plinko: C.PLINKO, slots: C.SLOTS, red: C.RED, mines: C.MINES, slot3: C.SLOT_3,
     horses: C.HORSES.map((h, i) => ({ name: h.name, pay: C.HORSE_PAY[i] })),
+    pack: C.PACK.map((x) => ({ tier: x.tier, pay: x.pay, odds: x.p })),
+    cases: C.CASE.map((x) => ({ tier: x.tier, pay: x.pay, odds: x.p })),
+    scratch: C.SCRATCH.map((x, i) => ({ pay: x.pay, odds: x.p, sym: C.SCRATCH_SYMS[i] })),
 };
 
 const pickN = (rng, list, k) => {
@@ -66,9 +85,10 @@ const net = (state, s) => state.chips[s] - state.owed[s];
 function startRound(state, ctx) {
     state.round++;
     state.phase = "play";
-    let open;
-    do open = pickN(ctx.rng, Object.keys(GAMES), TABLES);
-    while (state.open && open.slice().sort().join() === state.open.slice().sort().join());
+    // a few tables can stay open from last round, but at least half the floor is new
+    const prev = state.open || [];
+    const keep = pickN(ctx.rng, prev, Math.floor(ctx.rng() * (Math.floor(TABLES / 2) + 1)));
+    const open = keep.concat(pickN(ctx.rng, Object.keys(GAMES).filter((g) => !prev.includes(g)), TABLES - keep.length));
     state.open = open;
     state.hot = open[Math.floor(ctx.rng() * open.length)];
     state.at = seats(state.n).map(() => null);
@@ -119,7 +139,12 @@ function endPlay(state, ctx) {
         }
     });
     state.phase = "shop";
-    state.specials = pickN(ctx.rng, SPECIALS, 3);
+    // everyone gets their own specials, and one thing on sale
+    state.specials = seats(state.n).map(() => pickN(ctx.rng, SPECIALS, SPECIAL_COUNT));
+    state.sale = state.specials.map((mine) => {
+        const pool = DRINKS.concat(mine).filter((id) => ITEMS[id].cost > 0);
+        return { id: pool[Math.floor(ctx.rng() * pool.length)], pct: 10 * (1 + Math.floor(ctx.rng() * 5)) };
+    });
     state.shopDone = seats(state.n).map(() => false);
     state.endAt = ctx.now() + state.cfg.shop * 1000;
     const tick = ++state.tick;
@@ -131,6 +156,7 @@ function startResolve(state, ctx) {
     state.endAt = ctx.now() + state.cfg.resolve * 1000;
     state.resolved = state.pend;
     state.pend = [];
+    state.resolveDone = seats(state.n).map(() => false);
     const tick = ++state.tick;
     ctx.later(state.cfg.resolve * 1000, () => state.tick === tick && state.phase === "resolve" && endResolve(state, ctx));
 }
@@ -140,6 +166,7 @@ function endResolve(state, ctx) {
     // finishes and shots that weren't blocked: those people are paused until they say they're done
     state.resolved.forEach((e) => {
         if (!e.blocked && (e.item === "finish" || e.item === "shot")) state.paused[e.to] = e.item;
+        if (e.item === "loan") state.paused[e.to] = "shot";
     });
     state.resolved = [];
     if (state.round + 1 >= state.cfg.rounds) {
@@ -236,13 +263,25 @@ function crashOver(state, ctx, at, cashOut) {
 // ---------- settling a bet ----------
 function settle(state, s, g, stake, ret, out, text) {
     let back = ret;
+    let dbl = false;
     if (back > stake) {
-        const bonus = (state.hot === g ? HOT : 0) + (state.now.lucky.includes(s) ? 0.2 : 0) + (g === "horses" && state.now.horse.includes(s) ? 0.5 : 0);
-        back = stake + (back - stake) * (1 + bonus);
+        dbl = state.now.double.includes(s);
+        const bonus = (state.hot === g ? HOT : 0) + (state.now.lucky.includes(s) ? 0.2 : 0) + (g === "horses" && state.now.horse.includes(s) ? 0.5 : 0) - (state.now.jinx.includes(s) ? 0.25 : 0);
+        back = stake + (back - stake) * (1 + bonus) * (dbl ? 2 : 1);
+        if (dbl) state.now.double = state.now.double.filter((x) => x !== s);
     }
     back = Math.floor(back);
     state.chips[s] = Math.max(0, state.chips[s] + back);
     const won = back - stake;
+    if (dbl) feed(state, s, N(s) + " doubled down ✌️", "good");
+    // tax collectors on this player cash in on their next bet, win or lose
+    state.now.tax.filter((x) => x.to === s && !x.done).forEach((x) => {
+        x.done = true;
+        if (won < 0) {
+            state.chips[x.by] += -won;
+            feed(state, x.by, N(x.by) + " taxed " + N(s) + " for " + -won + " 🧾", "bad");
+        } else feed(state, s, N(s) + " dodged " + N(x.by) + "'s tax 🧾", "info");
+    });
     const st = state.stats[s];
     st.played++;
     st.wagered += stake;
@@ -253,6 +292,10 @@ function settle(state, s, g, stake, ret, out, text) {
     state.last[s] = { n: ++state.lastNo, g, stake, back, won, mult: stake ? r2(back / stake) : 0, out, text };
     if (won >= 40 || (stake && back / stake >= 5)) feed(state, s, N(s) + " won " + won + " at " + GAMES[g].name + " (" + r2(back / stake) + "×)", "good");
     else if (won <= -40) feed(state, s, N(s) + " lost " + -won + " at " + GAMES[g].name, "bad");
+    if (state.room[s] === "high" && state.chips[s] < HIGH.min) {
+        state.room[s] = "main";
+        feed(state, s, N(s) + " got walked out of the High Roller room", "bad");
+    }
     if (state.chips[s] < MIN && !state.broke[s]) {
         state.broke[s] = true;
         feed(state, s, N(s) + " is broke! Shot time 🥃", "bad");
@@ -289,7 +332,9 @@ function bet(state, s, p, ctx) {
     if (!g) return { error: "Sit at a table first." };
     const G = GAMES[g];
     const amount = p.amount;
-    if (!Number.isInteger(amount) || amount < MIN) return { error: "Bet at least " + MIN + "." };
+    const lim = limits(state, s);
+    if (!Number.isInteger(amount) || amount < lim.min) return { error: "Bet at least " + lim.min + (state.room[s] === "high" ? " in the High Roller room." : ".") };
+    if (amount > lim.max) return { error: "Table max is " + lim.max + (state.room[s] === "high" ? "." : " this round. Bigger bets are in the High Roller room.") };
     const sel = G.sel(p.sel);
     if (sel === null || sel === undefined) return { error: "Pick your bet first." };
     if (G.shared) {
@@ -378,41 +423,51 @@ function tablesView(state) {
 }
 
 // ---------- shop ----------
-function buy(state, s, p) {
+const price = (state, s, id) => (state.sale && state.sale[s] && state.sale[s].id === id ? Math.ceil((ITEMS[id].cost * (100 - state.sale[s].pct)) / 100) : ITEMS[id].cost);
+
+function buy(state, s, p, ctx) {
     if (state.phase !== "shop") return { error: "The shop is closed." };
     const id = p.item;
     const it = ITEMS[id];
-    if (!it || (!DRINKS.includes(id) && !state.specials.includes(id))) return { error: "That's not for sale right now." };
-    if (state.chips[s] < it.cost) return { error: "You need " + it.cost + " chips." };
+    if (!it || (!DRINKS.includes(id) && !state.specials[s].includes(id))) return { error: "That's not for sale right now." };
+    const cost = price(state, s, id);
+    if (state.chips[s] < cost) return { error: "You need " + cost + " chips." };
     if (id === "loan" && state.loans[s] >= 2) return { error: "The bank says no. Two loans is the limit." };
+    if (id === "tax" && state.next.tax.some((x) => x.by === s)) return { error: "One tax collector at a time." };
     let to = null;
     if (it.to === "one") {
         to = p.to;
         if (!Number.isInteger(to) || to < 0 || to >= state.n || to === s) return { error: "Pick who it's for." };
     }
-    state.chips[s] -= it.cost;
-    state.stats[s].spent += it.cost;
+    state.chips[s] -= cost;
+    state.stats[s].spent += cost;
     state.stats[s].bought++;
+    const pend = (e) => state.pend.push({ id: ++state.pendNo, by: s, item: id, to, ...e });
     if (id === "dd") state.inv[s].dd++;
-    else if (["lucky", "insure", "xray", "horse"].includes(id)) state.next[id].includes(s) || state.next[id].push(s);
-    else if (id === "ban") state.next.ban.includes(to) || state.next.ban.push(to);
+    else if (id === "mirror") state.inv[s].mirror++;
+    else if (["lucky", "insure", "xray", "horse", "double"].includes(id)) state.next[id].includes(s) || state.next[id].push(s);
+    else if (id === "ban" || id === "jinx") state.next[id].includes(to) || state.next[id].push(to);
     else if (id === "bounty") state.next.bounty.push({ by: s, to });
     else if (id === "tax") {
-        const rich = seats(state.n).filter((o) => o !== s).sort((a, b) => state.chips[b] - state.chips[a])[0];
-        if (rich !== undefined) {
-            const cut = Math.floor(state.chips[rich] * 0.15);
-            state.chips[rich] -= cut;
-            state.chips[s] += cut;
-            state.pend.push({ id: ++state.pendNo, by: s, item: "tax", to: rich, text: "taxed " + cut + " chips" });
-        }
+        state.next.tax.push({ by: s, to });
+        pend({ text: "next losing bet goes to the collector" });
     } else if (id === "loan") {
         state.loans[s]++;
-        state.chips[s] += 80;
-        state.owed[s] += 120;
-        state.pend.push({ id: ++state.pendNo, by: s, item: "loan", to: s, text: "took a payday loan: drinks 3", sips: 3 });
-    } else if (id === "table") state.pend.push({ id: ++state.pendNo, by: s, item: "table", to: null, text: "bought a round: everyone else drinks 2", sips: 2 });
-    else state.pend.push({ id: ++state.pendNo, by: s, item: id, to, text: it.text.replace("They ", "") });
-    if (["sip", "gulp", "table", "finish", "shot", "bounty", "ban", "tax"].includes(id)) state.stats[s].mean++;
+        state.chips[s] += LOAN.chips;
+        state.owed[s] += LOAN.owe;
+        pend({ to: s, text: "took a payday loan: takes a shot" });
+    } else if (id === "mystery") {
+        const r = Math.floor(ctx.rng() * 6);
+        const got = [0, 20, 40, 60, 100, 150][r];
+        state.chips[s] += got;
+        pend({ to: s, text: got ? "opened a mystery box: +" + got + " chips" : "opened an empty mystery box: drinks 1", sips: got ? 0 : 1 });
+    } else if (id === "hair") {
+        state.chips[s] += 50;
+        pend({ to: s, text: "had some hair of the dog: drinks 2, +50 chips", sips: 2 });
+    } else if (id === "rule") pend({ to: s, text: "makes a drinking rule for next round 📜" });
+    else if (id === "table") pend({ to: null, text: "bought a round: everyone else drinks 2", sips: 2 });
+    else pend({ text: it.text.replace("They ", "") });
+    if (["sip", "gulp", "table", "finish", "shot", "bounty", "ban", "tax", "jinx", "chug"].includes(id)) state.stats[s].mean++;
     return { ok: true };
 }
 
@@ -435,7 +490,14 @@ function pub(state, seat) {
         paused: state.paused,
         feed: state.feed,
         banned: state.now.ban,
-        shop: state.phase === "shop" ? { drinks: DRINKS, specials: state.specials, done: state.shopDone } : null,
+        // who has a tax collector on them right now (still waiting on their next bet), and who's jinxed
+        taxed: state.now.tax.filter((x) => !x.done).map((x) => ({ by: x.by, to: x.to })),
+        jinxed: state.now.jinx,
+        room: state.room,
+        tableMax: tableMax(Math.max(0, state.round)),
+        high: HIGH,
+        resolveDone: state.phase === "resolve" ? state.resolveDone : null,
+        shop: state.phase === "shop" ? { drinks: DRINKS, specials: seat >= 0 ? state.specials[seat] : [], sale: seat >= 0 ? state.sale[seat] : null, done: state.shopDone } : null,
         // shop buys stay secret until the resolve step (you see your own)
         resolve: state.phase === "resolve" ? state.resolved : seat >= 0 ? state.pend.filter((e) => e.by === seat) : [],
         stats: state.phase === "done" ? state.stats : null,
@@ -459,8 +521,8 @@ module.exports = {
             n, phase: "setup", round: -1, cfg: { ...CFG }, tick: 0, rid: 0, endAt: null, open: null, hot: null, tables: {},
             chips: new Array(n).fill(START), owed: new Array(n).fill(0), shots: new Array(n).fill(0), loans: new Array(n).fill(0), broke: new Array(n).fill(false),
             at: seats(n).map(() => null), sess: seats(n).map(() => null), last: seats(n).map(() => null), paused: seats(n).map(() => null),
-            inv: seats(n).map(() => ({ dd: 0 })), stats: seats(n).map(() => ({ played: 0, wagered: 0, best: 0, bestAt: null, spent: 0, bought: 0, mean: 0 })),
-            now: blank(), next: blank(), start: new Array(n).fill(START), pend: [], pendNo: 0, resolved: [], specials: [], shopDone: [],
+            inv: seats(n).map(() => ({ dd: 0, mirror: 0 })), room: seats(n).map(() => "main"), resolveDone: [], stats: seats(n).map(() => ({ played: 0, wagered: 0, best: 0, bestAt: null, spent: 0, bought: 0, mean: 0 })),
+            now: blank(), next: blank(), start: new Array(n).fill(START), pend: [], pendNo: 0, resolved: [], specials: [], sale: [], shopDone: [],
             feed: [], feedNo: 0, lastNo: 0,
         };
     },
@@ -474,7 +536,9 @@ module.exports = {
             insured: state.now.insure.includes(seat),
             xray,
             horse: state.now.horse.includes(seat),
-            next: Object.keys(state.next).filter((k) => k !== "bounty" && state.next[k].includes(seat)),
+            double: state.now.double.includes(seat),
+            jinxed: state.now.jinx.includes(seat),
+            next: Object.keys(state.next).filter((k) => !["bounty", "tax"].includes(k) && state.next[k].includes(seat)),
         };
         return v;
     },
@@ -519,11 +583,38 @@ module.exports = {
         if (act === "block") {
             if (state.phase !== "resolve") return { error: "Nothing to block right now." };
             const e = state.resolved.find((x) => x.id === p.id);
-            if (!e || e.to !== s || e.blocked || !["sip", "gulp", "finish", "shot", "bounty"].includes(e.item)) return { error: "You can't block that." };
+            if (!e || e.to !== s || e.blocked || e.mirrored || !STOPPABLE.includes(e.item)) return { error: "You can't block that." };
+            if (p.mirror) {
+                if (state.inv[s].mirror < 1) return { error: "You need a Mirror." };
+                if (e.by === s) return { error: "That one's from you." };
+                state.inv[s].mirror--;
+                e.mirrored = true;
+                e.bouncer = s;
+                e.to = e.by;
+                feed(state, s, N(s) + " bounced it back to " + N(e.by) + " 🪞", "bad");
+                return { ok: true };
+            }
             if (state.inv[s].dd < 1) return { error: "You need a Designated Driver." };
             state.inv[s].dd--;
             e.blocked = true;
             feed(state, s, N(s) + " used a Designated Driver 🛡️", "info");
+            return { ok: true };
+        }
+        if (act === "ready" && state.phase === "resolve") {
+            state.resolveDone[s] = true;
+            if (state.resolveDone.every(Boolean)) endResolve(state, ctx);
+            return { ok: true };
+        }
+        if (act === "room") {
+            if (state.phase !== "play") return { error: "Rooms open with the tables." };
+            if (state.sess[s]) return { error: "Finish your hand first." };
+            const riding = Object.values(state.tables || {}).some((t) => t.bets && t.bets[s]);
+            if (riding) return { error: "Wait for your bet to finish." };
+            if (p.room === "high") {
+                if (state.chips[s] < HIGH.min) return { error: "The High Roller room needs " + HIGH.min + " chips to get in." };
+                state.room[s] = "high";
+                feed(state, s, N(s) + " walked into the High Roller room 💎", "good");
+            } else state.room[s] = "main";
             return { ok: true };
         }
         if (state.paused[s]) return { error: state.paused[s] === "shot" ? "Take your shot first!" : "Finish your drink first!" };
@@ -536,7 +627,7 @@ module.exports = {
             feed(state, s, N(s) + " took a broke shot and got " + REFILL + " chips 🥃", "bad");
             return { ok: true };
         }
-        if (act === "buy") return buy(state, s, p);
+        if (act === "buy") return buy(state, s, p, ctx);
         if (act === "ready") {
             if (state.phase !== "shop") return { ok: true, quiet: true };
             state.shopDone[s] = true;

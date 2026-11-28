@@ -90,7 +90,7 @@ function night(seed, n, style) {
             for (let s = 0; s < n; s++) {
                 if (firstAfford.finish === null && st.chips[s] >= 200) firstAfford.finish = st.round + 1;
                 if (firstAfford.shot === null && st.chips[s] >= 300) firstAfford.shot = st.round + 1;
-                const wants = ["sip", "gulp", "table", "finish", "shot"].concat(st.specials);
+                const wants = ["sip", "gulp", "table", "finish", "shot"].concat(st.specials[s]);
                 const id = wants[Math.floor(rng() * wants.length)];
                 const r = mv(s, { act: "buy", item: id, to: (s + 1) % n });
                 if (r.ok) stats.buys++;

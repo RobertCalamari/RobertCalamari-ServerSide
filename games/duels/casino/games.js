@@ -78,6 +78,28 @@ const HORSES = [
 ];
 const HORSE_PAY = HORSES.map((h) => r2(0.94 / h.p));
 const MINES = [1, 3, 5, 10];
+// Pack Rip: 5 cards a pack from the Barfly set. Each card is worth a share of the pack price; the Golden Last Call is ~1 in 5,000 cards
+const PACK = [
+    { tier: "Common", p: 0.7068, pay: 0.04, cards: [["Foam Pup", "🐶"], ["Bottle Imp", "👺"], ["Coaster Crab", "🦀"], ["Ice Cube Newt", "🦎"], ["Lime Sprite", "🍋"]] },
+    { tier: "Uncommon", p: 0.22, pay: 0.12, cards: [["Hops Hare", "🐇"], ["Shaker Owl", "🦉"], ["Tap Toad", "🐸"]] },
+    { tier: "Rare", p: 0.06, pay: 0.6, cards: [["Barrel Bear", "🐻"], ["Whiskey Wyrm", "🐉"]] },
+    { tier: "Holo", p: 0.013, pay: 3, cards: [["Neon Phoenix", "🔥"], ["Midnight Kraken", "🐙"]] },
+    { tier: "Golden", p: 0.0002, pay: 250, cards: [["Golden Last Call", "👑"]] },
+];
+// Loot Cases: one item per case. The ★ Golden Keg is 1 in 2,000
+const CASE = [
+    { tier: "Worn", p: 0.72, pay: 0.2, items: ["Rusty Bottle Opener", "Soggy Coaster", "Bent Straw"] },
+    { tier: "Fine", p: 0.2, pay: 0.8, items: ["Foam Finger", "Pub Darts", "Lucky Lighter"] },
+    { tier: "Rare", p: 0.055, pay: 3, items: ["Neon Beer Sign", "Brass Tap Handle"] },
+    { tier: "Epic", p: 0.02, pay: 8, items: ["Crystal Decanter", "Velvet Jukebox"] },
+    { tier: "Legend", p: 0.0045, pay: 25, items: ["Diamond Shaker"] },
+    { tier: "Gold", p: 0.0005, pay: 300, items: ["★ Golden Keg"] },
+];
+// Scratch-offs: match three prizes on a 3x3 ticket. 1,000× is 1 in 10,000
+const SCRATCH = [
+    { pay: 1, p: 0.14 }, { pay: 2, p: 0.06 }, { pay: 5, p: 0.035 }, { pay: 25, p: 0.008 }, { pay: 100, p: 0.0015 }, { pay: 1000, p: 0.0001 },
+];
+const SCRATCH_SYMS = ["🍺", "🍷", "🥃", "🍸", "🍾", "💰"];
 const CRASH_K = 0.00008; // multiplier = e^(k * ms): 2× at ~8.7s, 10× at ~29s
 
 const minesMult = (k, safe) => {
@@ -135,7 +157,6 @@ const GAMES = {
     baccarat: {
         name: "Baccarat", icon: "🃏", kind: "instant", blurb: "Player, Banker (1.95×) or Tie (9×). Closest to 9 wins.",
         sel: (s) => (["p", "b", "t"].includes(s) ? s : null),
-        shared: true,
         roll(rng) {
             const cards = deal(rng, 6);
             const p = [cards[0], cards[1]];
@@ -180,6 +201,61 @@ const GAMES = {
             const reels = [0, 1, 2].map(() => pickW(rng, SLOT_W));
             const m = slotPay(reels);
             return { out: { reels }, mult: m, text: reels.map((x) => SLOTS[x]).join(" ") };
+        },
+    },
+    pack: {
+        name: "Pack Rip", icon: "🎴", kind: "instant", blurb: "Rip a 5-card Barfly pack. Commons are dust; the Golden Last Call pays 250×.",
+        sel: () => true,
+        run(rng) {
+            const cards = Array.from({ length: 5 }, () => {
+                const t = pickW(rng, PACK.map((x) => x.p));
+                const c = PACK[t].cards[Math.floor(rng() * PACK[t].cards.length)];
+                return { t, name: c[0], art: c[1] };
+            });
+            // the best card goes last, like a real rip
+            cards.sort((a, b) => a.t - b.t);
+            const mult = r2(cards.reduce((a, c) => a + PACK[c.t].pay, 0));
+            const top = cards[4];
+            return { out: { cards }, mult, text: "Best pull: " + top.name + " (" + PACK[top.t].tier + ")" };
+        },
+    },
+    cases: {
+        name: "Loot Cases", icon: "🧰", kind: "instant", blurb: "Open a case, get one item. Most are junk. The ★ Golden Keg pays 300×.",
+        sel: () => true,
+        run(rng) {
+            const t = pickW(rng, CASE.map((x) => x.p));
+            const item = CASE[t].items[Math.floor(rng() * CASE[t].items.length)];
+            // the strip it spins through, landing on slot 30
+            const strip = Array.from({ length: 36 }, (_, i) => (i === 30 ? t : pickW(rng, CASE.map((x) => x.p))));
+            return { out: { t, item, strip }, mult: CASE[t].pay, text: item + " (" + CASE[t].tier + ")" };
+        },
+    },
+    scratch: {
+        name: "Scratch-Offs", icon: "🎟️", kind: "instant", blurb: "Match three on the ticket to win that prize. Top prize 1,000×.",
+        sel: () => true,
+        run(rng) {
+            const w = SCRATCH.map((x) => x.p);
+            const lose = 1 - w.reduce((a, b) => a + b, 0);
+            const k = pickW(rng, w.concat(lose));
+            const win = k < SCRATCH.length ? k : null;
+            const count = SCRATCH.map(() => 0);
+            const grid = [];
+            if (win !== null) {
+                grid.push(win, win, win);
+                count[win] = 3;
+            }
+            while (grid.length < 9) {
+                const x = Math.floor(rng() * SCRATCH.length);
+                if (count[x] < 2) {
+                    count[x]++;
+                    grid.push(x);
+                }
+            }
+            for (let i = grid.length - 1; i > 0; i--) {
+                const j = Math.floor(rng() * (i + 1));
+                [grid[i], grid[j]] = [grid[j], grid[i]];
+            }
+            return { out: { grid, win }, mult: win === null ? 0 : SCRATCH[win].pay, text: win === null ? "No match" : "Matched three " + SCRATCH_SYMS[win] + " for " + SCRATCH[win].pay + "×" };
         },
     },
     horses: {
@@ -342,5 +418,5 @@ for (const g of Object.values(GAMES))
 
 module.exports = {
     GAMES, r2, rank, bjTotal, bacTotal, poker3, cmp, HAND3, RED, PLINKO, WHEEL, SLOTS, SLOT_W, SLOT_3, slotPay,
-    HORSES, HORSE_PAY, MINES, CRASH_K, minesMult, hiloMult,
+    HORSES, HORSE_PAY, MINES, CRASH_K, minesMult, hiloMult, PACK, CASE, SCRATCH, SCRATCH_SYMS,
 };
