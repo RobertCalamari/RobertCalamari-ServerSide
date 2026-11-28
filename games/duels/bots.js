@@ -1424,13 +1424,22 @@ function critterBot(v, k) {
         const own = v.owned[s];
         const want = [];
         if (stash < need * 1.5) want.push(coins >= 6 ? "honey" : "crate");
-        if (hard) want.push("nursery", "dog", "baskets", "wall", "shelter", "fertilizer", "sticks", "lantern");
-        else want.push(pick(k, ["wall", "crate", "trap", "lantern", "raft", "decoy"]));
+        const towers = v.placed.filter((p) => p.k === "lookout" && p.s === s).length;
+        if (hard) want.push("nursery", "dog", "baskets", "wall", towers ? "snare" : "lookout", "shelter", "fertilizer", "sticks", "campfire", "lantern");
+        else want.push(pick(k, ["wall", "crate", "snare", "bait", "campfire", "lantern", "raft", "decoy"]));
         const once = ["dog", "nursery", "baskets", "shelter", "fertilizer", "sticks", "lantern", "raft"];
-        const buy = want.find((x) => v.items[x] && coins >= v.items[x].cost && !(once.includes(x) && own.includes(x)) && !(x === "trap" && v.me.trap) && !(x === "decoy" && v.me.decoy));
+        const buy = want.find((x) => v.items[x] && coins >= v.items[x].cost && stash - (v.items[x].food || 0) >= need && !(once.includes(x) && own.includes(x)) && !(x === "decoy" && v.me.decoy));
         if (buy && k.mem.bought !== v.day + buy + coins) {
             k.mem.bought = v.day + buy + coins;
-            return { move: { act: "buy", k: buy }, wait };
+            const move = { act: "buy", k: buy };
+            if (v.items[buy].place) {
+                const hut = v.huts.slice().sort((a, b) => d(a, home) - d(b, home))[0];
+                const a = k.rng() * Math.PI * 2;
+                const at = buy === "bait" && hut ? { x: (hut.x + home.x) / 2, y: (hut.y + home.y) / 2 } : buy === "snare" ? { x: home.x + Math.cos(a) * 3, y: home.y + Math.sin(a) * 2.5 } : { x: home.x + Math.cos(a) * 1.5, y: home.y + Math.sin(a) * 1.2 };
+                move.x = Math.max(2, Math.min(v.w - 2, at.x));
+                move.y = Math.max(2, Math.min(v.h - 2, at.y));
+            }
+            return { move, wait };
         }
         return { move: { act: "ready" }, wait };
     }

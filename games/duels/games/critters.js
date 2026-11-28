@@ -20,6 +20,7 @@ const H = 18;
 const START = 7;
 const CAP = 40;
 const HOME_R = 1.8;
+const ROAM = 4.5; // how far idle critters wander from home by day
 
 const SPECIES = {
     bunny: { icon: "🐰", name: "Bunnies", perk: "Breed fast: 50% more babies" },
@@ -48,7 +49,6 @@ const ITEMS = {
     honey: { icon: "🍯", name: "Honey pot", cost: 6, text: "+10 berries in your stash." },
     wall: { icon: "🧱", name: "Wall", cost: 4, text: "Stops 1 raid loss a night, until it cracks." },
     dog: { icon: "🐕", name: "Guard dog", cost: 5, once: true, text: "+1 guard every night, for good." },
-    trap: { icon: "🪤", name: "Beast trap", cost: 3, once: true, text: "The next beast that comes near your home is caught." },
     lantern: { icon: "🔦", name: "Lantern", cost: 5, once: true, text: "Beasts that wander near your home often run off, for good." },
     decoy: { icon: "🦴", name: "Decoy", cost: 4, once: true, text: "Tonight's hut raid goes after someone else's home." },
     medicine: { icon: "💊", name: "Medicine", cost: 3, once: true, text: "Cures sick critters and keeps them healthy tomorrow." },
@@ -59,7 +59,14 @@ const ITEMS = {
     action: { icon: "➕", name: "Extra hands", cost: 5, once: true, text: "A 4th action tomorrow." },
     sticks: { icon: "🗡️", name: "Sharp sticks", cost: 6, once: true, text: "Raiders and hunters deal +1 damage, for good." },
     baskets: { icon: "🧺", name: "Big baskets", cost: 5, once: true, text: "Foragers carry +1 berry each, for good." },
+    snare: { icon: "🪤", name: "Hidden snare", cost: 3, food: 2, place: true, text: "Hide it anywhere. The first beast or rival critter to step on it is caught. Only you can see it." },
+    bait: { icon: "🍖", name: "Bait", cost: 2, food: 3, place: true, text: "Drop it anywhere. Tomorrow nearby beasts go for the bait instead of critters, until it's eaten." },
+    campfire: { icon: "🏕️", name: "Campfire", cost: 3, food: 2, place: true, text: "Light it anywhere. Beasts keep away from it all tomorrow." },
+    lookout: { icon: "🗼", name: "Lookout", cost: 5, food: 2, place: true, text: "Build it anywhere. Your critters near it fight off beasts far more often, for good." },
 };
+// scenery: trees hide critters from beasts, ponds can be fished, wildfire burns trees down
+const DECOR = { tree: "🌳", pine: "🌲", rock: "🪨", flower: "🌼", grass: "🌾", log: "🪵", pond: "💧" };
+const PICKUPS = { mushroom: { icon: "🍄", food: 2 }, nut: { icon: "🌰", food: 1 }, shiny: { icon: "✨", coins: 1 } };
 const EVENTS = {
     calm: { icon: "☀️", name: "Calm day", text: "Nothing happens. Enjoy it." },
     harvest: { icon: "🍇", name: "Bumper harvest", text: "Every bush is full and a new one grows near each home." },
@@ -190,6 +197,20 @@ function startGame(state, ctx) {
     });
     for (let k = 0; k < 4 + state.n; k++) addBush(state, spot(ctx.rng, (q) => state.homes.every((h) => dist(h, q) > 2.5)));
     for (let k = 0; k < Math.max(2, Math.ceil(state.n / 2)); k++) addHut(state, ctx.rng);
+    const clear = (q, r) => state.homes.every((h) => dist(h, q) > r) && state.huts.every((h) => dist(h, q) > 1.5) && state.decor.every((d) => dist(d, q) > (d.k === "pond" ? 2.2 : 1));
+    const scatter = (k, count, r) => {
+        for (let i = 0; i < count; i++) {
+            const p = spot(ctx.rng, (q) => clear(q, r));
+            state.decor.push({ id: ++state.ids, k, x: r1(p.x), y: r1(p.y) });
+        }
+    };
+    scatter("pond", 1 + Math.floor(ctx.rng() * 2), 3.5);
+    scatter("tree", 5 + state.n, 2.2);
+    scatter("pine", 3 + Math.floor(state.n / 2), 2.2);
+    scatter("rock", 4, 2.2);
+    scatter("log", 2, 2.2);
+    scatter("flower", 6, 1.6);
+    scatter("grass", 5, 1.6);
     state.event = "calm";
     startPlan(state, ctx);
 }
@@ -212,7 +233,16 @@ function startDay(state, ctx) {
     state.strikes = [];
     state.fire = null;
     state.beasts = [];
-    state.critters.forEach((c) => (c.job = null));
+    state.critters.forEach((c) => {
+        c.job = null;
+        c.rest = Math.floor(rng() * 4);
+    });
+    const kinds = Object.keys(PICKUPS);
+    state.pickups = state.pickups.slice(-6);
+    for (let k = 0; k < 3 + state.n; k++) {
+        const p = spot(rng, (q) => state.homes.every((h) => !h || dist(h, q) > HOME_R));
+        state.pickups.push({ id: ++state.ids, k: kinds[Math.floor(rng() * kinds.length)], x: r1(p.x), y: r1(p.y) });
+    }
     const ev = state.event;
     if (ev === "harvest") {
         state.bushes.forEach((b) => (b.food = b.max));
@@ -222,6 +252,7 @@ function startDay(state, ctx) {
         const p = spot(rng, (q) => state.homes.every((h) => !h || dist(h, q) > 5));
         state.fire = { x: r1(p.x), y: r1(p.y), r: 4 };
         state.bushes = state.bushes.filter((b) => dist(b, state.fire) > state.fire.r);
+        state.decor = state.decor.filter((d) => !["tree", "pine", "log", "grass", "flower"].includes(d.k) || dist(d, state.fire) > state.fire.r);
         state.huts.forEach((h) => dist(h, state.fire) <= state.fire.r && (h.hp = Math.max(1, h.hp - 4)));
         state.critters.slice().forEach((c) => dist(c, state.fire) <= state.fire.r && !perk(state, c.s, "lizard") && kill(state, c, "fire"));
     }
@@ -263,7 +294,11 @@ function startDay(state, ctx) {
             if (a.target === "spot") target = p.t || target;
             if (a.target === "home") target = state.homes[p.t] || target;
             if (p.a === "explore") target = spot(rng);
-            if (p.a === "fish") target = shoreOf(state.homes[s]);
+            if (p.a === "fish") {
+                target = shoreOf(state.homes[s]);
+                const pond = state.decor.filter((d) => d.k === "pond").sort((a, b) => dist(a, state.homes[s]) - dist(b, state.homes[s]))[0];
+                if (pond && dist(pond, state.homes[s]) < dist(target, state.homes[s])) target = pond;
+            }
             const job = { a: p.a, t: p.t, x: target.x, y: target.y, crew: crew.map((c) => c.id), done: false, s };
             crew.forEach((c) => (c.job = job));
             if (p.a === "nest") state.nest[s] += 2;
@@ -370,18 +405,23 @@ function tick(state, ctx) {
     state.beasts.slice().forEach((b) => {
         if (!state.beasts.includes(b)) return;
         const near = alive(state).find((s) => dist(state.homes[s], b) < 3);
-        if (near !== undefined && state.trapAt[near]) {
-            state.trapAt[near] = false;
-            state.beasts.splice(state.beasts.indexOf(b), 1);
-            log(state, near, "🪤 #" + near + "#'s trap caught a " + HUTS[b.kind].icon, "good");
-            return;
-        }
         if (near !== undefined && has(state, near, "lantern") && rng() < 0.15) {
             state.beasts.splice(state.beasts.indexOf(b), 1);
             return;
         }
-        const prey = state.critters.filter((c) => !atHome(state, c)).sort((a, c) => dist(a, b) - dist(c, b))[0];
-        const tgt = prey && dist(prey, b) < 7 ? prey : { x: b.x + rng() * 4 - 2, y: b.y + rng() * 4 - 2 };
+        const snare = state.placed.find((p) => p.k === "snare" && dist(p, b) < 0.8);
+        if (snare) {
+            state.placed.splice(state.placed.indexOf(snare), 1);
+            state.beasts.splice(state.beasts.indexOf(b), 1);
+            state.poofs.push({ x: r1(b.x), y: r1(b.y), why: "snare", n: ++state.seq });
+            log(state, snare.s, "🪤 #" + snare.s + "#'s snare caught a " + HUTS[b.kind].icon, "good");
+            return;
+        }
+        // bait pulls beasts in; trees hide critters (unless they're bleeding)
+        const bait = state.placed.filter((p) => p.k === "bait" && p.live && dist(p, b) < 6).sort((a, c) => dist(a, b) - dist(c, b))[0];
+        const hidden = (c) => !c.hurt && state.decor.some((d) => (d.k === "tree" || d.k === "pine") && dist(d, c) < 0.9);
+        const prey = bait ? null : state.critters.filter((c) => !atHome(state, c) && !hidden(c)).sort((a, c) => dist(a, b) - dist(c, b))[0];
+        const tgt = bait || (prey && dist(prey, b) < 7 ? prey : { x: b.x + rng() * 4 - 2, y: b.y + rng() * 4 - 2 });
         const d = dist(tgt, b);
         const m = Math.min(d, 0.85);
         if (d > 0.01) {
@@ -389,11 +429,32 @@ function tick(state, ctx) {
             b.y += ((tgt.y - b.y) / d) * m;
             clampIn(b);
         }
+        state.placed.forEach((p) => {
+            if (p.k !== "campfire" || !p.live) return;
+            const e = dist(p, b);
+            if (e < 2.5) {
+                b.x = p.x + ((b.x - p.x) / (e || 1)) * 2.5;
+                b.y = p.y + ((b.y - p.y) / (e || 1)) * 2.5;
+                clampIn(b);
+            }
+        });
+        if (bait && dist(bait, b) < 0.9 && --bait.left <= 0) {
+            state.placed.splice(state.placed.indexOf(bait), 1);
+            log(state, bait.s, "🍖 The beasts finished #" + bait.s + "#'s bait", "info");
+        }
         if (prey && dist(prey, b) < 0.8 && !(prey.job && prey.job.a === "hunt")) {
-            const fightBack = perk(state, prey.s, "fox") ? 0.55 : perk(state, prey.s, "hedgehog") ? 0.5 : 0.25;
+            const tower = state.placed.some((p) => p.k === "lookout" && p.s === prey.s && dist(p, prey) < 3.5);
+            const fightBack = (perk(state, prey.s, "fox") ? 0.55 : perk(state, prey.s, "hedgehog") ? 0.5 : 0.25) + (tower ? 0.35 : 0);
             if (rng() < fightBack) {
                 state.beasts.splice(state.beasts.indexOf(b), 1);
                 log(state, prey.s, SPECIES[state.picks[prey.s]].icon + " #" + prey.s + "# fought off a " + HUTS[b.kind].icon, "good");
+            } else if (!prey.hurt) {
+                // the first bite hurts: they limp home and heal overnight. A second one kills
+                prey.hurt = true;
+                prey.rest = 0;
+                b.x += rng() * 4 - 2;
+                b.y += rng() * 4 - 2;
+                clampIn(b);
             } else {
                 kill(state, prey, "beast");
                 if (!HUTS[b.kind].bites || rng() < 0.5) {
@@ -408,7 +469,13 @@ function tick(state, ctx) {
     state.critters.slice().forEach((c) => {
         if (!state.critters.includes(c)) return;
         const home = state.homes[c.s];
-        const speed = c.sick ? 0.5 : 1;
+        let speed = c.sick || c.hurt ? 0.5 : 1;
+        const trap = state.placed.find((p) => p.k === "snare" && p.s !== c.s && dist(p, c) < 0.6);
+        if (trap) {
+            state.placed.splice(state.placed.indexOf(trap), 1);
+            log(state, trap.s, "🪤 #" + trap.s + "#'s hidden snare caught one of #" + c.s + "#'s critters", "bad");
+            return kill(state, c, "snare");
+        }
         if (c.job && c.job.a === "hunt") {
             const prey = state.beasts.slice().sort((a, b) => dist(a, c) - dist(b, c))[0];
             if (prey) {
@@ -434,11 +501,56 @@ function tick(state, ctx) {
         } else if (c.job && c.job.done && !atHome(state, c)) {
             c.tx = home.x;
             c.ty = home.y;
-        } else if (dist({ x: c.tx, y: c.ty }, c) < 0.4 || rng() < 0.1) {
-            const a = rng() * Math.PI * 2;
-            const rr = rng() * (c.job ? 1.2 : HOME_R * 0.9);
-            c.tx = home.x + Math.cos(a) * rr;
-            c.ty = home.y + Math.sin(a) * rr;
+        } else if (c.hurt || (c.job && c.job.a === "guard")) {
+            // the hurt limp home, guards stay on the doorstep
+            if (dist({ x: c.tx, y: c.ty }, home) > HOME_R * 0.8 || dist({ x: c.tx, y: c.ty }, c) < 0.3) {
+                const a = rng() * Math.PI * 2;
+                const rr = rng() * HOME_R * 0.7;
+                c.tx = home.x + Math.cos(a) * rr;
+                c.ty = home.y + Math.sin(a) * rr;
+            }
+        } else {
+            // roam: walk a random way at a random pace, stop for a bit, go again
+            if (c.rest > 0) {
+                c.rest--;
+                c.tx = c.x;
+                c.ty = c.y;
+            } else if (dist({ x: c.tx, y: c.ty }, c) < 0.3) {
+                c.rest = 1 + Math.floor(rng() * 5);
+                const a = rng() * Math.PI * 2;
+                const step = 1 + rng() * 3;
+                let p = { x: c.x + Math.cos(a) * step, y: c.y + Math.sin(a) * step };
+                const far = dist(p, home);
+                const reach = c.job ? 1.5 : ROAM;
+                if (far > reach) p = { x: home.x + ((p.x - home.x) / far) * reach * rng(), y: home.y + ((p.y - home.y) / far) * reach * rng() };
+                const goodie = !c.job && state.pickups.find((q) => dist(q, home) < ROAM + 1 && dist(q, c) < 3 && rng() < 0.4);
+                if (goodie) p = { x: goodie.x, y: goodie.y };
+                clampIn(p);
+                c.tx = p.x;
+                c.ty = p.y;
+                c.pace = 0.35 + rng() * 0.6;
+            }
+            speed *= c.pace || 0.6;
+            const b = state.bushes.find((x) => x.food > 0 && dist(x, c) < 0.8);
+            if (b && c.grab !== b.id && rng() < 0.25) {
+                c.grab = b.id;
+                b.food--;
+                state.stash[c.s]++;
+                state.night[c.s].food++;
+            }
+            const q = state.pickups.find((x) => dist(x, c) < 0.6);
+            if (q) {
+                const pk = PICKUPS[q.k];
+                state.pickups.splice(state.pickups.indexOf(q), 1);
+                if (pk.food) {
+                    state.stash[c.s] += pk.food;
+                    state.night[c.s].food += pk.food;
+                }
+                if (pk.coins) {
+                    state.coins[c.s] += pk.coins;
+                    state.night[c.s].loot += pk.coins;
+                }
+            }
         }
         const d = Math.hypot(c.tx - c.x, c.ty - c.y);
         if (d > 0.05) {
@@ -478,6 +590,8 @@ function startNight(state, ctx) {
         if (list.length) log(state, s, d.icon + " The " + d.name + " raided #" + s + "#'s home: lost " + list.length, "bad");
         else log(state, s, "🛡️ #" + s + "# held off the " + d.name, "good");
     });
+    state.critters.forEach((c) => (c.hurt = false));
+    state.placed = state.placed.filter((p) => p.k === "snare" || p.k === "lookout");
     alive(state).forEach((s) => {
         const nt = state.night[s];
         mine(state, s).filter((c) => c.sick).forEach((c) => {
@@ -597,7 +711,11 @@ function pub(state) {
         hutDefs: HUTS,
         homes: state.homes,
         homeR: HOME_R,
-        critters: state.critters.map((c) => [c.id, c.s, r1(c.x), r1(c.y), c.sick ? 1 : 0, c.job ? 1 : 0]),
+        critters: state.critters.map((c) => [c.id, c.s, r1(c.x), r1(c.y), c.sick ? 1 : 0, c.job ? 1 : 0, c.hurt ? 1 : 0]),
+        decor: state.decor,
+        decorDefs: DECOR,
+        pickups: state.pickups.map((q) => ({ id: q.id, icon: PICKUPS[q.k].icon, x: q.x, y: q.y })),
+        placed: state.placed.filter((p) => p.k !== "snare").map((p) => ({ id: p.id, k: p.k, s: p.s, x: p.x, y: p.y, live: !!p.live })),
         bushes: state.bushes,
         huts: state.huts,
         beasts: state.beasts.map((b) => [b.id, b.kind, r1(b.x), r1(b.y)]),
@@ -640,9 +758,9 @@ module.exports = {
         const state = {
             n, ids: 0, seq: 0, t: 0, day: 0, phase: "pick", turn: null, deadline: null, tick: 0,
             pickOrder: seats(n).map((i) => (i + start) % n), pickPos: 0, picks: arr(null), homes: arr(null),
-            critters: [], bushes: [], huts: [], beasts: [], strikes: [], poofs: [], fire: null, log: [],
+            critters: [], bushes: [], huts: [], beasts: [], decor: [], pickups: [], placed: [], strikes: [], poofs: [], fire: null, log: [],
             stash: arr(8), coins: arr(4), walls: arr(0), owned: seats(n).map(() => []),
-            guards: arr(0), nest: arr(0), med: arr(false), extra: arr(false), decoy: arr(false), trapAt: arr(false),
+            guards: arr(0), nest: arr(0), med: arr(false), extra: arr(false), decoy: arr(false),
             out: arr(null), plans: seats(n).map(() => []), ready: arr(false), votes: arr(null),
             night: seats(n).map(() => blankNight()), hist: [], event: null, offers: [], lastVote: null,
         };
@@ -651,7 +769,8 @@ module.exports = {
     },
     view(state, seat) {
         const v = pub(state);
-        v.me = { coins: state.coins[seat], plan: state.plans[seat], slots: slots(state, seat), vote: state.votes[seat], trap: state.trapAt[seat], med: state.med[seat], extra: state.extra[seat], decoy: state.decoy[seat] };
+        v.placed = v.placed.concat(state.placed.filter((p) => p.k === "snare" && p.s === seat).map((p) => ({ id: p.id, k: p.k, s: p.s, x: p.x, y: p.y, live: true })));
+        v.me = { coins: state.coins[seat], plan: state.plans[seat], slots: slots(state, seat), vote: state.votes[seat], med: state.med[seat], extra: state.extra[seat], decoy: state.decoy[seat] };
         return v;
     },
     tv(state) {
@@ -717,13 +836,20 @@ module.exports = {
             const it = ITEMS[p.k];
             if (!it) return { error: "Pick an item." };
             if (state.coins[seat] < it.cost) return { error: "You need " + it.cost + " coins." };
-            const held = { trap: state.trapAt[seat], medicine: state.med[seat], action: state.extra[seat], decoy: state.decoy[seat] };
+            if (it.food && state.stash[seat] < it.food) return { error: "You need " + it.food + " berries too." };
+            let at = null;
+            if (it.place) {
+                at = { x: Number(p.x), y: Number(p.y) };
+                if (!Number.isFinite(at.x) || !Number.isFinite(at.y) || !onIsland(at.x, at.y)) return { error: "Tap a spot on the island to put it." };
+            }
+            const held = { medicine: state.med[seat], action: state.extra[seat], decoy: state.decoy[seat] };
             if (it.once && (held[p.k] || has(state, seat, p.k))) return { error: "You already have that." };
             state.coins[seat] -= it.cost;
-            if (p.k === "crate") state.stash[seat] += 6;
+            if (it.food) state.stash[seat] -= it.food;
+            if (it.place) state.placed.push({ id: ++state.ids, k: p.k, s: seat, x: r1(at.x), y: r1(at.y), left: 8, live: true });
+            else if (p.k === "crate") state.stash[seat] += 6;
             else if (p.k === "honey") state.stash[seat] += 10;
             else if (p.k === "wall") state.walls[seat]++;
-            else if (p.k === "trap") state.trapAt[seat] = true;
             else if (p.k === "medicine") {
                 state.med[seat] = true;
                 mine(state, seat).forEach((c) => (c.sick = false));
